@@ -1,0 +1,58 @@
+version: '3.9'
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: mayalu_postgres
+    environment:
+      POSTGRES_DB: mayalu_wears
+      POSTGRES_USER: mayalu
+      POSTGRES_PASSWORD: secret
+    ports:
+      - '5432:5432'
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./docker/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U mayalu -d mayalu_wears']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - mayalu_net
+
+  api:
+    build:
+      context: .
+      target: development
+    container_name: mayalu_api
+    env_file: .env
+    ports:
+      - '3000:3000'
+      - '9229:9229'
+    volumes:
+      - .:/app
+      - /app/node_modules
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - mayalu_net
+    restart: unless-stopped
+
+  adminer:
+    image: adminer:latest
+    container_name: mayalu_adminer
+    ports:
+      - '8080:8080'
+    depends_on:
+      - postgres
+    networks:
+      - mayalu_net
+
+volumes:
+  postgres_data:
+
+networks:
+  mayalu_net:
+    driver: bridge
