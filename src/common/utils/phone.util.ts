@@ -23,4 +23,4 @@ export function normalizeNepalPhone(raw: string): string {
   return raw;
 }
 
-export const NEPAL_PHONE_REGEX = /^\+977[6-9]\d{8}$/;
+export const NEPAL_PHONE_REGEX = /^\+977[6-9]\d{9}$/;

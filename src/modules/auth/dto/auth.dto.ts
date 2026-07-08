@@ -1,11 +1,13 @@
 import { IsString, IsEnum, Matches, IsOptional, Length } from 'class-validator';
+import { Transform } from 'class-transformer';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { NEPAL_PHONE_REGEX } from '../../../common/utils/phone.util';
+import { NEPAL_PHONE_REGEX, normalizeNepalPhone } from '../../../common/utils/phone.util';
 
 const PHONE_MSG = 'Must be a valid Nepal mobile number (e.g. +9779841234567 or 9841234567)';
 
 export class SendOtpDto {
   @ApiProperty({ example: '+9779841234567', description: 'Nepal mobile number — any format (normalized to E.164 internally)' })
+  @Transform(({ value }) => (typeof value === 'string' ? normalizeNepalPhone(value) : value))
   @IsString()
   @Matches(NEPAL_PHONE_REGEX, { message: PHONE_MSG })
   phone!: string;
@@ -17,6 +19,7 @@ export class SendOtpDto {
 
 export class VerifyOtpDto {
   @ApiProperty({ example: '+9779841234567' })
+  @Transform(({ value }) => (typeof value === 'string' ? normalizeNepalPhone(value) : value))
   @IsString()
   @Matches(NEPAL_PHONE_REGEX, { message: PHONE_MSG })
   phone!: string;
@@ -33,11 +36,12 @@ export class VerifyOtpDto {
 
 export class RegisterDto {
   @ApiProperty({ example: '+9779841234567', description: 'Must have been OTP-verified first' })
+  @Transform(({ value }) => (typeof value === 'string' ? normalizeNepalPhone(value) : value))
   @IsString()
   @Matches(NEPAL_PHONE_REGEX, { message: PHONE_MSG })
   phone!: string;
 
-  @ApiProperty({ example: 'Sita Rai', description: '2–100 characters' })
+  @ApiProperty({ example: 'Sita Rai', description: '2-100 characters' })
   @IsString()
   @Length(2, 100)
   fullName!: string;
