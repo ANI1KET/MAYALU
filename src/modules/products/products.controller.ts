@@ -3,9 +3,6 @@ import {
 } from '@nestjs/common';
 import {
   ApiTags, ApiOperation, ApiCookieAuth, ApiBody, ApiParam, ApiQuery,
-  ApiOkResponse, ApiCreatedResponse, ApiBadRequestResponse,
-  ApiNotFoundResponse, ApiUnauthorizedResponse, ApiForbiddenResponse,
-  ApiConflictResponse,
 } from '@nestjs/swagger';
 import { ProductsService } from './products.service';
 import { AuthGuard } from '../../common/guards/auth.guard';
@@ -16,8 +13,11 @@ import {
 } from './dto/product.dto';
 import {
   ProductListResponseDto, ProductDetailDto, ProductVariantDto,
-  ProductMediaDto, PresignResponseDto, ErrorResponseDto, MessageResponseDto,
+  ProductMediaDto, PresignResponseDto, MessageResponseDto,
 } from '../../common/swagger/response.dto';
+import {
+  ApiOkEnvelope, ApiCreatedEnvelope, ApiStandardErrors,
+} from '../../common/decorators/api-responses.decorator';
 
 // ─── Public browsing ───────────────────────────────────────────────────────
 
@@ -45,7 +45,8 @@ export class ProductsController {
   @ApiQuery({ name: 'isTrending', required: false, type: Boolean })
   @ApiQuery({ name: 'page', required: false, type: Number })
   @ApiQuery({ name: 'limit', required: false, type: Number, description: 'Max 100' })
-  @ApiOkResponse({ type: ProductListResponseDto, description: 'Paginated product listing' })
+  @ApiOkEnvelope(ProductListResponseDto, 'Paginated product listing')
+  @ApiStandardErrors({ auth: false, badRequest: true })
   browse(@Query() filter: ProductFilterDto) {
     return this.productsService.browse(filter);
   }
@@ -57,8 +58,8 @@ export class ProductsController {
     description: 'Full product with active variants, sorted media, and category. Increments view counter asynchronously.',
   })
   @ApiParam({ name: 'slug', example: 'nepali-silk-saree-red' })
-  @ApiOkResponse({ type: ProductDetailDto, description: 'Full product detail' })
-  @ApiNotFoundResponse({ type: ErrorResponseDto, description: 'PRODUCT_NOT_FOUND or product not active' })
+  @ApiOkEnvelope(ProductDetailDto, 'Full product detail')
+  @ApiStandardErrors({ auth: false, notFound: 'Product' })
   findBySlug(@Param('slug') slug: string) {
     return this.productsService.findBySlug(slug);
   }
@@ -80,10 +81,13 @@ export class CmsProductsController {
     description: 'Creates a draft product. Enforces plan limit (maxProducts). Slug must be unique per shop.',
   })
   @ApiQuery({ name: 'shopId', required: true, description: 'Shop UUID' })
-  @ApiCreatedResponse({ type: ProductDetailDto, description: 'Draft product created' })
-  @ApiBadRequestResponse({ type: ErrorResponseDto, description: 'SLUG_TAKEN' })
-  @ApiForbiddenResponse({ type: ErrorResponseDto, description: 'PLAN_LIMIT_REACHED — upgrade plan' })
-  @ApiUnauthorizedResponse({ type: ErrorResponseDto, description: 'MISSING_ACCESS_TOKEN' })
+  @ApiCreatedEnvelope(ProductDetailDto, 'Draft product created')
+  @ApiStandardErrors({
+    badRequest: true,
+    forbidden: 'PLAN_LIMIT_REACHED — product limit reached, upgrade plan',
+    notFound: 'Category',
+    conflict: 'SLUG_TAKEN — product slug already exists in this shop',
+  })
   create(@Body() dto: CreateProductDto, @Query('shopId') shopId: string) {
     return this.productsService.create(shopId, dto);
   }
@@ -92,8 +96,8 @@ export class CmsProductsController {
   @ApiOperation({ summary: '[CMS] Get product by ID (any status, staff view)' })
   @ApiParam({ name: 'id', description: 'Product UUID' })
   @ApiQuery({ name: 'shopId', required: true })
-  @ApiOkResponse({ type: ProductDetailDto, description: 'Product with all variants and media' })
-  @ApiNotFoundResponse({ type: ErrorResponseDto, description: 'PRODUCT_NOT_FOUND' })
+  @ApiOkEnvelope(ProductDetailDto, 'Product with all variants and media')
+  @ApiStandardErrors({ notFound: 'Product' })
   findOne(@Param('id') id: string, @Query('shopId') shopId: string) {
     return this.productsService.findOne(id, shopId);
   }
@@ -103,8 +107,8 @@ export class CmsProductsController {
   @ApiOperation({ summary: '[CMS] Update product details' })
   @ApiParam({ name: 'id', description: 'Product UUID' })
   @ApiQuery({ name: 'shopId', required: true })
-  @ApiOkResponse({ type: ProductDetailDto, description: 'Updated product' })
-  @ApiNotFoundResponse({ type: ErrorResponseDto, description: 'PRODUCT_NOT_FOUND' })
+  @ApiOkEnvelope(ProductDetailDto, 'Updated product')
+  @ApiStandardErrors({ badRequest: true, notFound: 'Product' })
   update(@Param('id') id: string, @Query('shopId') shopId: string, @Body() dto: UpdateProductDto) {
     return this.productsService.update(id, shopId, dto);
   }
@@ -116,8 +120,8 @@ export class CmsProductsController {
   })
   @ApiParam({ name: 'id', description: 'Product UUID' })
   @ApiQuery({ name: 'shopId', required: true })
-  @ApiOkResponse({ type: ProductDetailDto, description: 'Published product' })
-  @ApiBadRequestResponse({ type: ErrorResponseDto, description: 'MISSING_VARIANTS | MISSING_MEDIA' })
+  @ApiOkEnvelope(ProductDetailDto, 'Published product')
+  @ApiStandardErrors({ badRequest: 'NO_IMAGES | NO_VARIANTS', notFound: 'Product' })
   publish(@Param('id') id: string, @Query('shopId') shopId: string) {
     return this.productsService.publish(id, shopId);
   }
@@ -126,7 +130,8 @@ export class CmsProductsController {
   @ApiOperation({ summary: '[CMS] Archive product (hidden from storefront)' })
   @ApiParam({ name: 'id', description: 'Product UUID' })
   @ApiQuery({ name: 'shopId', required: true })
-  @ApiOkResponse({ type: MessageResponseDto, description: 'Product archived' })
+  @ApiOkEnvelope(MessageResponseDto, 'Product archived')
+  @ApiStandardErrors({ notFound: 'Product' })
   archive(@Param('id') id: string, @Query('shopId') shopId: string) {
     return this.productsService.archive(id, shopId);
   }
@@ -135,8 +140,11 @@ export class CmsProductsController {
   @ApiOperation({ summary: '[CMS] Delete draft product', description: 'Only draft products can be deleted.' })
   @ApiParam({ name: 'id', description: 'Product UUID' })
   @ApiQuery({ name: 'shopId', required: true })
-  @ApiOkResponse({ type: MessageResponseDto, description: 'Product deleted' })
-  @ApiBadRequestResponse({ type: ErrorResponseDto, description: 'CANNOT_DELETE_ACTIVE — archive first' })
+  @ApiOkEnvelope(MessageResponseDto, 'Product deleted')
+  @ApiStandardErrors({
+    badRequest: 'NOT_DRAFT — only draft products can be deleted, archive active products instead',
+    notFound: 'Product',
+  })
   remove(@Param('id') id: string, @Query('shopId') shopId: string) {
     return this.productsService.remove(id, shopId);
   }
@@ -149,9 +157,13 @@ export class CmsProductsController {
   })
   @ApiParam({ name: 'id', description: 'Product UUID' })
   @ApiQuery({ name: 'shopId', required: true })
-  @ApiCreatedResponse({ type: ProductVariantDto, description: 'Variant created' })
-  @ApiConflictResponse({ description: 'SKU_TAKEN' })
-  @ApiForbiddenResponse({ type: ErrorResponseDto, description: 'PLAN_LIMIT_REACHED' })
+  @ApiCreatedEnvelope(ProductVariantDto, 'Variant created')
+  @ApiStandardErrors({
+    badRequest: true,
+    forbidden: 'PLAN_LIMIT_REACHED — variant limit reached, upgrade plan',
+    notFound: 'Product',
+    conflict: 'SKU_TAKEN — SKU is already in use',
+  })
   createVariant(@Param('id') id: string, @Query('shopId') shopId: string, @Body() dto: CreateVariantDto) {
     return this.productsService.createVariant(id, shopId, dto);
   }
@@ -164,7 +176,8 @@ export class CmsProductsController {
   @ApiParam({ name: 'id', description: 'Product UUID' })
   @ApiQuery({ name: 'shopId', required: true })
   @ApiQuery({ name: 'filename', required: true, example: 'saree-red-front.jpg' })
-  @ApiOkResponse({ type: PresignResponseDto, description: 'Signed upload parameters' })
+  @ApiOkEnvelope(PresignResponseDto, 'Signed upload parameters')
+  @ApiStandardErrors({ notFound: 'Product' })
   presign(@Param('id') id: string, @Query('shopId') shopId: string, @Query('filename') filename: string) {
     return this.productsService.getPresignUrl(id, shopId, filename);
   }
@@ -177,7 +190,8 @@ export class CmsProductsController {
   })
   @ApiParam({ name: 'id', description: 'Product UUID' })
   @ApiQuery({ name: 'shopId', required: true })
-  @ApiCreatedResponse({ type: ProductMediaDto, description: 'Media saved' })
+  @ApiCreatedEnvelope(ProductMediaDto, 'Media saved')
+  @ApiStandardErrors({ badRequest: true, notFound: 'Product' })
   addMedia(@Param('id') id: string, @Query('shopId') shopId: string, @Body() dto: AddMediaDto) {
     return this.productsService.addMedia(id, shopId, dto);
   }

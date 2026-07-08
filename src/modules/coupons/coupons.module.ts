@@ -4,9 +4,8 @@ import {
 } from '@nestjs/common';
 import {
   ApiTags, ApiOperation, ApiCookieAuth, ApiBody,
-  ApiOkResponse, ApiBadRequestResponse, ApiUnauthorizedResponse,
 } from '@nestjs/swagger';
-import { CouponValidationResponseDto, ErrorResponseDto } from '../../common/swagger/response.dto';
+import { CouponValidationResponseDto } from '../../common/swagger/response.dto';
 import { IsString, IsNumber, Min } from 'class-validator';
 import { eq, and } from 'drizzle-orm';
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
@@ -15,6 +14,7 @@ import { DATABASE_TOKEN } from '../../database/database.module';
 import { AuthGuard } from '../../common/guards/auth.guard';
 import { CurrentUser } from '../../common/decorators/index';
 import { JwtService } from '../../common/services/jwt.service';
+import { ApiOkEnvelope, ApiStandardErrors } from '../../common/decorators/api-responses.decorator';
 
 class ValidateCouponDto {
   @IsString() code!: string;
@@ -105,9 +105,12 @@ export class CouponsController {
     summary: 'Validate coupon code',
     description: 'Validates the coupon against the order amount. Checks expiry, per-user limit, and global usage limit.',
   })
-  @ApiOkResponse({ type: CouponValidationResponseDto, description: 'Valid coupon — discount calculated' })
-  @ApiBadRequestResponse({ type: ErrorResponseDto, description: 'COUPON_NOT_FOUND | COUPON_EXPIRED | COUPON_EXHAUSTED | COUPON_USER_LIMIT | COUPON_MIN_ORDER' })
-  @ApiUnauthorizedResponse({ type: ErrorResponseDto, description: 'MISSING_ACCESS_TOKEN' })
+  @ApiOkEnvelope(CouponValidationResponseDto, 'Valid coupon — discount calculated')
+  @ApiStandardErrors({
+    badRequest:
+      'COUPON_NOT_FOUND | COUPON_NOT_STARTED | COUPON_EXPIRED | COUPON_EXHAUSTED | ' +
+      'MIN_ORDER_REQUIRED | COUPON_ALREADY_USED | VALIDATION_ERROR',
+  })
   validate(@CurrentUser() user: { sub: string }, @Body() dto: ValidateCouponDto) {
     return this.couponsService.validate(dto.code, user.sub, dto.orderAmount);
   }

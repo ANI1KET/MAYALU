@@ -1,9 +1,6 @@
 import { Injectable, Inject, Module, Controller, Get, Post, Body } from '@nestjs/common';
-import {
-  ApiTags, ApiOperation, ApiBody, ApiQuery,
-  ApiOkResponse, ApiBadRequestResponse,
-} from '@nestjs/swagger';
-import { DeliveryZoneDto, ServiceabilityResponseDto, ErrorResponseDto } from '../../common/swagger/response.dto';
+import { ApiTags, ApiOperation, ApiBody, ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { DeliveryZoneDto, ServiceabilityResponseDto } from '../../common/swagger/response.dto';
 import { IsString, IsEnum, IsOptional } from 'class-validator';
 import { eq, and, gt, sql } from 'drizzle-orm';
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
@@ -15,10 +12,16 @@ import {
   DELIVERY_CACHE_TTL_MS,
   DEFAULT_ORIGIN_ZONE_CODE,
 } from '../../common/constants/index';
+import { ApiOkEnvelope, ApiStandardErrors } from '../../common/decorators/api-responses.decorator';
 
 class CheckServiceabilityDto {
+  @ApiProperty({ example: '44600', description: 'Destination postal/pincode' })
   @IsString() destPincode!: string;
+
+  @ApiProperty({ example: '550e8400-e29b-41d4-a716-446655440000', description: 'Shop UUID (resolves origin warehouse)' })
   @IsString() shopId!: string;
+
+  @ApiPropertyOptional({ enum: ['SMALL', 'MEDIUM', 'LARGE', 'BULKY', 'HEAVY_BULKY', 'FRAGILE'], example: 'SMALL', description: 'Defaults to SMALL' })
   @IsOptional()
   @IsEnum(['SMALL', 'MEDIUM', 'LARGE', 'BULKY', 'HEAVY_BULKY', 'FRAGILE'])
   sizeClass?: 'SMALL' | 'MEDIUM' | 'LARGE' | 'BULKY' | 'HEAVY_BULKY' | 'FRAGILE';
@@ -252,7 +255,8 @@ export class DeliveryController {
   @Public()
   @Get('zones')
   @ApiOperation({ summary: 'Get all active delivery zones' })
-  @ApiOkResponse({ type: [DeliveryZoneDto], description: 'All active delivery zones' })
+  @ApiOkEnvelope([DeliveryZoneDto], 'All active delivery zones')
+  @ApiStandardErrors({ auth: false })
   getZones() {
     return this.deliveryService.getZones();
   }
@@ -266,8 +270,8 @@ export class DeliveryController {
       'Checks if delivery is available to a pincode and returns carrier options with costs. ' +
       'Results are cached for 24 hours (DELIVERY_CACHE_TTL_MS). Remote areas enforce online payment.',
   })
-  @ApiOkResponse({ type: ServiceabilityResponseDto, description: 'Serviceability result with carriers and costs' })
-  @ApiBadRequestResponse({ type: ErrorResponseDto, description: 'Invalid pincode or shopId' })
+  @ApiOkEnvelope(ServiceabilityResponseDto, 'Serviceability result with carriers and costs')
+  @ApiStandardErrors({ auth: false, badRequest: 'Invalid pincode or shopId' })
   check(@Body() dto: CheckServiceabilityDto) {
     return this.deliveryService.checkServiceability(dto);
   }

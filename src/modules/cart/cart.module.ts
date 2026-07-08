@@ -3,12 +3,10 @@ import {
 } from '@nestjs/common';
 import {
   ApiTags, ApiOperation, ApiCookieAuth, ApiBody, ApiParam,
-  ApiOkResponse, ApiCreatedResponse, ApiBadRequestResponse,
-  ApiNotFoundResponse, ApiUnauthorizedResponse,
   ApiProperty,
 } from '@nestjs/swagger';
 import {
-  CartResponseDto, CartItemDto, MessageResponseDto, ErrorResponseDto,
+  CartResponseDto, CartItemDto, MessageResponseDto,
 } from '../../common/swagger/response.dto';
 import { IsNumber, IsString, Min, Max } from 'class-validator';
 import { CartService } from './cart.service';
@@ -16,6 +14,7 @@ import { AuthGuard } from '../../common/guards/auth.guard';
 import { CurrentUser } from '../../common/decorators/index';
 import { JwtService } from '../../common/services/jwt.service';
 import { CART } from '../../common/constants/index';
+import { ApiOkEnvelope, ApiCreatedEnvelope, ApiStandardErrors } from '../../common/decorators/api-responses.decorator';
 
 class AddItemDto {
   @ApiProperty({ example: '550e8400-e29b-41d4-a716-446655440000', description: 'ProductVariant UUID' })
@@ -39,8 +38,8 @@ export class CartController {
 
   @Get()
   @ApiOperation({ summary: 'Get cart with items, prices, and totals' })
-  @ApiOkResponse({ type: CartResponseDto, description: 'Current cart contents' })
-  @ApiUnauthorizedResponse({ type: ErrorResponseDto, description: 'MISSING_ACCESS_TOKEN' })
+  @ApiOkEnvelope(CartResponseDto, 'Current cart contents')
+  @ApiStandardErrors()
   getCart(@CurrentUser() user: { sub: string }) {
     return this.cartService.getCartWithItems(user.sub);
   }
@@ -51,9 +50,11 @@ export class CartController {
     summary: 'Add item to cart',
     description: 'Checks stock availability. Merges quantity if variant already in cart. Max 99 per item.',
   })
-  @ApiCreatedResponse({ type: CartItemDto, description: 'Item added/updated in cart' })
-  @ApiBadRequestResponse({ type: ErrorResponseDto, description: 'INSUFFICIENT_STOCK | VARIANT_NOT_FOUND | PRODUCT_INACTIVE' })
-  @ApiUnauthorizedResponse({ type: ErrorResponseDto, description: 'MISSING_ACCESS_TOKEN' })
+  @ApiCreatedEnvelope(CartItemDto, 'Item added/updated in cart')
+  @ApiStandardErrors({
+    badRequest: 'PRODUCT_UNAVAILABLE | INSUFFICIENT_STOCK',
+    notFound: 'Variant',
+  })
   addItem(@CurrentUser() user: { sub: string }, @Body() dto: AddItemDto) {
     return this.cartService.addItem(user.sub, dto.variantId, dto.quantity);
   }
@@ -62,9 +63,11 @@ export class CartController {
   @ApiBody({ type: UpdateItemDto })
   @ApiOperation({ summary: 'Update item quantity', description: 'Re-validates stock on every update.' })
   @ApiParam({ name: 'itemId', description: 'Cart item UUID' })
-  @ApiOkResponse({ type: CartItemDto, description: 'Updated cart item' })
-  @ApiNotFoundResponse({ type: ErrorResponseDto, description: 'CART_ITEM_NOT_FOUND' })
-  @ApiBadRequestResponse({ type: ErrorResponseDto, description: 'INSUFFICIENT_STOCK' })
+  @ApiOkEnvelope(CartItemDto, 'Updated cart item')
+  @ApiStandardErrors({
+    badRequest: 'INSUFFICIENT_STOCK',
+    notFound: 'Item',
+  })
   updateItem(
     @CurrentUser() user: { sub: string },
     @Param('itemId') itemId: string,
@@ -76,15 +79,16 @@ export class CartController {
   @Delete('items/:itemId')
   @ApiOperation({ summary: 'Remove item from cart' })
   @ApiParam({ name: 'itemId', description: 'Cart item UUID' })
-  @ApiOkResponse({ type: MessageResponseDto, description: 'Item removed' })
-  @ApiNotFoundResponse({ type: ErrorResponseDto, description: 'CART_ITEM_NOT_FOUND' })
+  @ApiOkEnvelope(MessageResponseDto, 'Item removed')
+  @ApiStandardErrors()
   removeItem(@CurrentUser() user: { sub: string }, @Param('itemId') itemId: string) {
     return this.cartService.removeItem(user.sub, itemId);
   }
 
   @Delete()
   @ApiOperation({ summary: 'Clear entire cart' })
-  @ApiOkResponse({ type: MessageResponseDto, description: 'Cart cleared' })
+  @ApiOkEnvelope(MessageResponseDto, 'Cart cleared')
+  @ApiStandardErrors()
   clearCart(@CurrentUser() user: { sub: string }) {
     return this.cartService.clearCart(user.sub);
   }

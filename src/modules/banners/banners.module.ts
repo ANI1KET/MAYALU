@@ -1,6 +1,6 @@
 import { Injectable, Inject, Module, Controller, Get, Query } from '@nestjs/common';
 import {
-  ApiTags, ApiOperation, ApiQuery, ApiOkResponse,
+  ApiTags, ApiOperation, ApiQuery,
 } from '@nestjs/swagger';
 import { BannerDto } from '../../common/swagger/response.dto';
 import { eq, and, or, isNull, lte, gte } from 'drizzle-orm';
@@ -8,6 +8,7 @@ import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
 import * as schema from '../../database/schema/index';
 import { DATABASE_TOKEN } from '../../database/database.module';
 import { Public } from '../../common/decorators/index';
+import { ApiOkEnvelope, ApiStandardErrors } from '../../common/decorators/api-responses.decorator';
 
 @Injectable()
 export class BannersService {
@@ -46,7 +47,8 @@ export class BannersController {
   })
   @ApiQuery({ name: 'position', required: false, enum: ['hero', 'category', 'promo'] })
   @ApiQuery({ name: 'shopId', required: false, description: 'Include shop-specific banners' })
-  @ApiOkResponse({ type: [BannerDto], description: 'Active banners sorted by sortOrder' })
+  @ApiOkEnvelope([BannerDto], 'Active banners sorted by sortOrder')
+  @ApiStandardErrors({ auth: false })
   getActiveBanners(
     @Query('position') position?: 'hero' | 'category' | 'promo',
     @Query('shopId') shopId?: string,

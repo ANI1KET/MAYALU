@@ -10,19 +10,7 @@ import {
   Logger,
   UnauthorizedException,
 } from '@nestjs/common';
-import {
-  ApiTags,
-  ApiOperation,
-  ApiOkResponse,
-  ApiCreatedResponse,
-  ApiBadRequestResponse,
-  ApiUnauthorizedResponse,
-  ApiForbiddenResponse,
-  ApiConflictResponse,
-  ApiCookieAuth,
-  ApiHeader,
-  ApiBody,
-} from '@nestjs/swagger';
+import { ApiTags, ApiOperation, ApiCookieAuth, ApiHeader, ApiBody } from '@nestjs/swagger';
 import type { Request, Response } from 'express';
 import { Throttle } from '@nestjs/throttler';
 import { AuthService } from './auth.service';
@@ -39,8 +27,18 @@ import {
   RegisterResponseDto,
   MessageResponseDto,
   UserDto,
-  ErrorResponseDto,
 } from '../../common/swagger/response.dto';
+import {
+  ApiOkEnvelope,
+  ApiCreatedEnvelope,
+  ApiBadRequest,
+  ApiUnauthorized,
+  ApiForbidden,
+  ApiConflict,
+  ApiTooManyRequests,
+  ApiInternalServerError,
+  ApiStandardErrors,
+} from '../../common/decorators/api-responses.decorator';
 
 @ApiTags('Auth')
 @Controller('auth')
@@ -61,11 +59,12 @@ export class AuthController {
     summary: 'Send OTP',
     description: 'Send a 6-digit OTP to a Nepal mobile number. Throttled to 5 requests/min. Cooldown of 60 s between resends.',
   })
-  @ApiOkResponse({ type: OtpSentResponseDto, description: 'OTP dispatched successfully' })
-  @ApiBadRequestResponse({ type: ErrorResponseDto, description: 'OTP_COOLDOWN — wait before requesting again' })
+  @ApiOkEnvelope(OtpSentResponseDto, 'OTP dispatched successfully')
+  @ApiBadRequest('OTP_COOLDOWN — wait before requesting again')
+  @ApiTooManyRequests()
+  @ApiInternalServerError()
   async sendOtp(@Body() dto: SendOtpDto, @Req() req: Request) {
     const ip = req.ip ?? req.socket.remoteAddress;
-    console.log("ip ", ip);
     return this.authService.sendOtp(dto.phone, dto.purpose, ip);
   }
 
@@ -82,9 +81,12 @@ export class AuthController {
       'Sets `access_token` (15 min) and `refresh_token` (30 days) as HttpOnly cookies.',
   })
   @ApiHeader({ name: 'X-Session-Id', description: 'Guest cart session ID for merge on login', required: false })
-  @ApiOkResponse({ type: LoginResponseDto, description: 'Login successful — JWT cookies set' })
-  @ApiUnauthorizedResponse({ type: ErrorResponseDto, description: 'INVALID_OTP — wrong code | OTP_MAX_ATTEMPTS — locked' })
-  @ApiForbiddenResponse({ type: ErrorResponseDto, description: 'ACCOUNT_SUSPENDED' })
+  @ApiOkEnvelope(LoginResponseDto, 'Login successful — JWT cookies set')
+  @ApiBadRequest()
+  @ApiUnauthorized('INVALID_OTP — wrong code | OTP_MAX_ATTEMPTS — locked')
+  @ApiForbidden('ACCOUNT_SUSPENDED')
+  @ApiTooManyRequests()
+  @ApiInternalServerError()
   async verifyOtp(
     @Body() dto: VerifyOtpDto,
     @Req() req: Request,
@@ -107,9 +109,11 @@ export class AuthController {
     summary: 'Complete registration',
     description: 'Register name & email after phone has been OTP-verified. Sets JWT cookies.',
   })
-  @ApiCreatedResponse({ type: RegisterResponseDto, description: 'User registered and logged in' })
-  @ApiBadRequestResponse({ type: ErrorResponseDto, description: 'PHONE_NOT_VERIFIED — send and verify OTP first' })
-  @ApiConflictResponse({ type: ErrorResponseDto, description: 'PHONE_TAKEN — account already exists' })
+  @ApiCreatedEnvelope(RegisterResponseDto, 'User registered and logged in')
+  @ApiBadRequest('PHONE_NOT_VERIFIED — send and verify OTP first')
+  @ApiConflict('PHONE_TAKEN — account already exists')
+  @ApiTooManyRequests()
+  @ApiInternalServerError()
   async register(
     @Body() dto: RegisterDto,
     @Req() req: Request,
@@ -131,9 +135,11 @@ export class AuthController {
       'Exchange the `refresh_token` cookie for a new token pair. ' +
       'The old token is invalidated. Token reuse triggers family-wide revocation.',
   })
-  @ApiOkResponse({ type: MessageResponseDto, description: 'New JWT cookies set' })
-  @ApiUnauthorizedResponse({ type: ErrorResponseDto, description: 'MISSING_REFRESH_TOKEN | INVALID_REFRESH_TOKEN | REFRESH_TOKEN_EXPIRED' })
-  @ApiForbiddenResponse({ type: ErrorResponseDto, description: 'REFRESH_TOKEN_REUSE_DETECTED — all sessions revoked' })
+  @ApiOkEnvelope(MessageResponseDto, 'New JWT cookies set')
+  @ApiUnauthorized('MISSING_REFRESH_TOKEN | INVALID_REFRESH_TOKEN | REFRESH_TOKEN_EXPIRED')
+  @ApiForbidden('REFRESH_TOKEN_REUSE_DETECTED — all sessions revoked')
+  @ApiTooManyRequests()
+  @ApiInternalServerError()
   async refresh(@Req() req: Request, @Res({ passthrough: true }) res: Response) {
     const config = getConfig();
     const rawToken = (req.cookies as Record<string, string> | undefined)?.[COOKIE.REFRESH_TOKEN_NAME];
@@ -150,8 +156,8 @@ export class AuthController {
   @HttpCode(200)
   @ApiCookieAuth('access_token')
   @ApiOperation({ summary: 'Logout', description: 'Revoke the refresh token and clear both JWT cookies.' })
-  @ApiOkResponse({ type: MessageResponseDto, description: 'Logged out — cookies cleared' })
-  @ApiUnauthorizedResponse({ type: ErrorResponseDto, description: 'ACCESS_TOKEN_EXPIRED | MISSING_ACCESS_TOKEN' })
+  @ApiOkEnvelope(MessageResponseDto, 'Logged out — cookies cleared')
+  @ApiStandardErrors()
   async logout(
     @CurrentUser() user: { sub: string },
     @Req() req: Request,
@@ -168,8 +174,8 @@ export class AuthController {
   @Get('me')
   @ApiCookieAuth('access_token')
   @ApiOperation({ summary: 'Get current user', description: 'Return the authenticated user profile.' })
-  @ApiOkResponse({ type: UserDto, description: 'Authenticated user profile' })
-  @ApiUnauthorizedResponse({ type: ErrorResponseDto, description: 'ACCESS_TOKEN_EXPIRED | MISSING_ACCESS_TOKEN' })
+  @ApiOkEnvelope(UserDto, 'Authenticated user profile')
+  @ApiStandardErrors()
   async me(@CurrentUser() user: { sub: string }) {
     const result = await this.authService.getMe(user.sub);
     return this.sanitizeUser(result);

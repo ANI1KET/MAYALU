@@ -4,13 +4,11 @@ import {
 } from '@nestjs/common';
 import {
   ApiTags, ApiOperation, ApiSecurity, ApiBody, ApiParam, ApiQuery,
-  ApiOkResponse, ApiCreatedResponse, ApiBadRequestResponse,
-  ApiUnauthorizedResponse, ApiNotFoundResponse,
   ApiProperty, ApiPropertyOptional,
 } from '@nestjs/swagger';
 import {
   AdminDashboardDto, OrderListResponseDto, OrderDto, ShopDto,
-  BannerDto, ReviewDto, MessageResponseDto, ErrorResponseDto,
+  BannerDto, ReviewDto,
 } from '../../common/swagger/response.dto';
 import { IsString, IsEnum, IsOptional, IsBoolean, IsNumber, IsUUID, Min, Max } from 'class-validator';
 import { eq, desc, and, sql, count } from 'drizzle-orm';
@@ -21,12 +19,17 @@ import { AdminGuard } from '../../common/guards/admin.guard';
 import { SmsService } from '../../common/services/sms.service';
 import { MediaService } from '../../common/services/media.service';
 import { parsePagination, buildPaginatedResult } from '../../common/utils/pagination.util';
+import { ApiOkEnvelope, ApiCreatedEnvelope, ApiOkEnvelopeSchema, ApiCreatedEnvelopeSchema, ApiStandardErrors } from '../../common/decorators/api-responses.decorator';
 
 class UpdateOrderStatusDto {
+  @ApiProperty({ enum: ['confirmed', 'packed', 'shipped', 'delivered', 'cancelled', 'refunded'], example: 'shipped' })
   @IsEnum(['confirmed', 'packed', 'shipped', 'delivered', 'cancelled', 'refunded'])
   status!: 'confirmed' | 'packed' | 'shipped' | 'delivered' | 'cancelled' | 'refunded';
 
+  @ApiPropertyOptional({ example: 'Shipped via Pathao Courier' })
   @IsOptional() @IsString() note?: string;
+
+  @ApiPropertyOptional({ example: 'TXN-2025-000123' })
   @IsOptional() @IsString() paymentReference?: string;
 }
 
@@ -325,8 +328,8 @@ export class AdminController {
     summary: '[Admin] Platform dashboard stats',
     description: 'Approximate counts via pg_stat_user_tables (O(1) — no full table scans). Pending orders is always exact.',
   })
-  @ApiOkResponse({ type: AdminDashboardDto, description: 'Platform-wide metrics' })
-  @ApiUnauthorizedResponse({ type: ErrorResponseDto, description: 'INVALID_ADMIN_KEY' })
+  @ApiOkEnvelope(AdminDashboardDto, 'Platform-wide metrics')
+  @ApiStandardErrors()
   getDashboard() { return this.adminService.getDashboard(); }
 
   @Get('orders')
@@ -334,8 +337,8 @@ export class AdminController {
   @ApiQuery({ name: 'status', required: false, enum: ['pending','confirmed','packed','shipped','delivered','cancelled','returned'] })
   @ApiQuery({ name: 'page', required: false, type: Number })
   @ApiQuery({ name: 'limit', required: false, type: Number })
-  @ApiOkResponse({ type: OrderListResponseDto, description: 'All orders paginated' })
-  @ApiUnauthorizedResponse({ type: ErrorResponseDto, description: 'INVALID_ADMIN_KEY' })
+  @ApiOkEnvelope(OrderListResponseDto, 'All orders paginated')
+  @ApiStandardErrors({ badRequest: true })
   getOrders(
     @Query('page') page?: number,
     @Query('limit') limit?: number,
@@ -346,13 +349,11 @@ export class AdminController {
   @ApiBody({ type: UpdateOrderStatusDto })
   @ApiOperation({
     summary: '[Admin] Update order status',
-    description: 'Appends to status history. Sends SMS confirmation when status changes to "shipped".',
+    description: 'Appends to status history. Sends SMS confirmation when status changes to "shipped". Note: the service does not currently validate status transition order — any enum value is accepted for any current status.',
   })
   @ApiParam({ name: 'id', description: 'Order UUID' })
-  @ApiOkResponse({ type: OrderDto, description: 'Updated order' })
-  @ApiNotFoundResponse({ type: ErrorResponseDto, description: 'ORDER_NOT_FOUND' })
-  @ApiBadRequestResponse({ type: ErrorResponseDto, description: 'INVALID_STATUS_TRANSITION' })
-  @ApiUnauthorizedResponse({ type: ErrorResponseDto, description: 'INVALID_ADMIN_KEY' })
+  @ApiOkEnvelope(OrderDto, 'Updated order')
+  @ApiStandardErrors({ badRequest: true, notFound: 'Order' })
   updateOrderStatus(@Param('id') id: string, @Body() dto: UpdateOrderStatusDto) {
     return this.adminService.updateOrderStatus(id, dto);
   }
@@ -362,8 +363,8 @@ export class AdminController {
   @ApiQuery({ name: 'page', required: false, type: Number })
   @ApiQuery({ name: 'limit', required: false, type: Number })
   @ApiQuery({ name: 'status', required: false, enum: ['pending','active','suspended','rejected'] })
-  @ApiOkResponse({ type: [ShopDto], description: 'Shops list' })
-  @ApiUnauthorizedResponse({ type: ErrorResponseDto, description: 'INVALID_ADMIN_KEY' })
+  @ApiOkEnvelope([ShopDto], 'Shops list')
+  @ApiStandardErrors({ badRequest: true })
   getShops(@Query('page') page?: number, @Query('limit') limit?: number) {
     return this.adminService.getShops(page, limit);
   }
@@ -372,9 +373,8 @@ export class AdminController {
   @ApiBody({ type: UpdateShopStatusDto })
   @ApiOperation({ summary: '[Admin] Approve, suspend or reject a shop' })
   @ApiParam({ name: 'id', description: 'Shop UUID' })
-  @ApiOkResponse({ type: ShopDto, description: 'Updated shop' })
-  @ApiNotFoundResponse({ type: ErrorResponseDto, description: 'SHOP_NOT_FOUND' })
-  @ApiUnauthorizedResponse({ type: ErrorResponseDto, description: 'INVALID_ADMIN_KEY' })
+  @ApiOkEnvelope(ShopDto, 'Updated shop')
+  @ApiStandardErrors({ badRequest: true, notFound: 'Shop' })
   updateShopStatus(@Param('id') id: string, @Body() dto: UpdateShopStatusDto) {
     return this.adminService.updateShopStatus(id, dto);
   }
@@ -382,36 +382,42 @@ export class AdminController {
   @Post('coupons')
   @ApiBody({ type: CreateCouponDto })
   @ApiOperation({ summary: '[Admin] Create platform-wide coupon' })
-  @ApiCreatedResponse({ schema: { type: 'object', properties: { id: { type: 'string' }, code: { type: 'string' } } }, description: 'Coupon created' })
-  @ApiUnauthorizedResponse({ type: ErrorResponseDto, description: 'INVALID_ADMIN_KEY' })
+  @ApiCreatedEnvelopeSchema(
+    { type: 'object', properties: { id: { type: 'string', format: 'uuid' }, code: { type: 'string', example: 'DASHAIN30' } } },
+    'Coupon created',
+  )
+  @ApiStandardErrors({ badRequest: true })
   createCoupon(@Body() dto: CreateCouponDto) { return this.adminService.createCoupon(dto); }
 
   @Patch('coupons/:id/toggle')
   @ApiOperation({ summary: '[Admin] Toggle coupon active/inactive' })
   @ApiParam({ name: 'id', description: 'Coupon UUID' })
-  @ApiOkResponse({ type: MessageResponseDto, description: 'Coupon state toggled' })
-  @ApiUnauthorizedResponse({ type: ErrorResponseDto, description: 'INVALID_ADMIN_KEY' })
+  @ApiOkEnvelopeSchema(
+    { type: 'object', properties: { id: { type: 'string', format: 'uuid' }, code: { type: 'string' }, isActive: { type: 'boolean' } } },
+    'Coupon state toggled — returns the updated coupon row',
+  )
+  @ApiStandardErrors({ notFound: 'Coupon' })
   toggleCoupon(@Param('id') id: string) { return this.adminService.toggleCoupon(id); }
 
   @Post('banners')
   @ApiBody({ type: CreateBannerDto })
   @ApiOperation({ summary: '[Admin] Create banner' })
-  @ApiCreatedResponse({ type: BannerDto, description: 'Banner created' })
-  @ApiUnauthorizedResponse({ type: ErrorResponseDto, description: 'INVALID_ADMIN_KEY' })
+  @ApiCreatedEnvelope(BannerDto, 'Banner created')
+  @ApiStandardErrors({ badRequest: true })
   createBanner(@Body() dto: CreateBannerDto) { return this.adminService.createBanner(dto); }
 
   @Patch('banners/:id/toggle')
   @ApiOperation({ summary: '[Admin] Toggle banner active/inactive' })
   @ApiParam({ name: 'id', description: 'Banner UUID' })
-  @ApiOkResponse({ type: MessageResponseDto, description: 'Banner state toggled' })
-  @ApiUnauthorizedResponse({ type: ErrorResponseDto, description: 'INVALID_ADMIN_KEY' })
+  @ApiOkEnvelope(BannerDto, 'Banner state toggled')
+  @ApiStandardErrors({ notFound: 'Banner' })
   toggleBanner(@Param('id') id: string) { return this.adminService.toggleBanner(id); }
 
   @Get('reviews/pending')
   @ApiOperation({ summary: '[Admin] Get reviews pending moderation' })
   @ApiQuery({ name: 'page', required: false, type: Number })
-  @ApiOkResponse({ type: [ReviewDto], description: 'Pending reviews' })
-  @ApiUnauthorizedResponse({ type: ErrorResponseDto, description: 'INVALID_ADMIN_KEY' })
+  @ApiOkEnvelope([ReviewDto], 'Pending reviews')
+  @ApiStandardErrors()
   getPendingReviews(@Query('page') page?: number) {
     return this.adminService.getPendingReviews(page);
   }
@@ -422,9 +428,8 @@ export class AdminController {
     description: 'Approves the review and atomically recalculates the product avgRating and totalReviews.',
   })
   @ApiParam({ name: 'id', description: 'Review UUID' })
-  @ApiOkResponse({ type: ReviewDto, description: 'Approved review' })
-  @ApiNotFoundResponse({ type: ErrorResponseDto, description: 'REVIEW_NOT_FOUND' })
-  @ApiUnauthorizedResponse({ type: ErrorResponseDto, description: 'INVALID_ADMIN_KEY' })
+  @ApiOkEnvelope(ReviewDto, 'Approved review')
+  @ApiStandardErrors({ notFound: 'Review' })
   approveReview(@Param('id') id: string) { return this.adminService.approveReview(id); }
 }
 

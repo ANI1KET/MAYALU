@@ -2,11 +2,8 @@ import {
   Injectable, Inject, NotFoundException, Module, Controller,
   Get, Post, Delete, Param, UseGuards,
 } from '@nestjs/common';
-import {
-  ApiTags, ApiOperation, ApiCookieAuth, ApiParam,
-  ApiOkResponse, ApiCreatedResponse, ApiUnauthorizedResponse,
-} from '@nestjs/swagger';
-import { ProductDto, MessageResponseDto, ErrorResponseDto } from '../../common/swagger/response.dto';
+import { ApiTags, ApiOperation, ApiCookieAuth, ApiParam } from '@nestjs/swagger';
+import { WishlistResponseDto } from '../../common/swagger/response.dto';
 import { eq, and } from 'drizzle-orm';
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
 import * as schema from '../../database/schema/index';
@@ -14,6 +11,7 @@ import { DATABASE_TOKEN } from '../../database/database.module';
 import { AuthGuard } from '../../common/guards/auth.guard';
 import { CurrentUser } from '../../common/decorators/index';
 import { JwtService } from '../../common/services/jwt.service';
+import { ApiOkEnvelope, ApiOkEnvelopeSchema, ApiCreatedEnvelopeSchema, ApiStandardErrors } from '../../common/decorators/api-responses.decorator';
 
 @Injectable()
 export class WishlistService {
@@ -84,8 +82,8 @@ export class WishlistController {
 
   @Get()
   @ApiOperation({ summary: 'Get wishlist with product summaries' })
-  @ApiOkResponse({ type: [ProductDto], description: 'Wishlist products' })
-  @ApiUnauthorizedResponse({ type: ErrorResponseDto, description: 'MISSING_ACCESS_TOKEN' })
+  @ApiOkEnvelope(WishlistResponseDto, 'Wishlist with items (empty items array if never created)')
+  @ApiStandardErrors()
   getWishlist(@CurrentUser() user: { sub: string }) {
     return this.wishlistService.getWishlist(user.sub);
   }
@@ -93,8 +91,11 @@ export class WishlistController {
   @Post(':productId')
   @ApiOperation({ summary: 'Add product to wishlist (idempotent)' })
   @ApiParam({ name: 'productId', description: 'Product UUID' })
-  @ApiCreatedResponse({ type: MessageResponseDto, description: 'Added to wishlist' })
-  @ApiUnauthorizedResponse({ type: ErrorResponseDto, description: 'MISSING_ACCESS_TOKEN' })
+  @ApiCreatedEnvelopeSchema(
+    { type: 'object', properties: { added: { type: 'boolean', example: true }, productId: { type: 'string', format: 'uuid' } } },
+    'Added to wishlist',
+  )
+  @ApiStandardErrors({ notFound: 'Product' })
   addProduct(@CurrentUser() user: { sub: string }, @Param('productId') productId: string) {
     return this.wishlistService.addProduct(user.sub, productId);
   }
@@ -102,8 +103,11 @@ export class WishlistController {
   @Delete(':productId')
   @ApiOperation({ summary: 'Remove product from wishlist' })
   @ApiParam({ name: 'productId', description: 'Product UUID' })
-  @ApiOkResponse({ type: MessageResponseDto, description: 'Removed from wishlist' })
-  @ApiUnauthorizedResponse({ type: ErrorResponseDto, description: 'MISSING_ACCESS_TOKEN' })
+  @ApiOkEnvelopeSchema(
+    { type: 'object', properties: { removed: { type: 'boolean', example: true }, productId: { type: 'string', format: 'uuid' } } },
+    'Removed from wishlist (idempotent — no error if it was never present)',
+  )
+  @ApiStandardErrors()
   removeProduct(@CurrentUser() user: { sub: string }, @Param('productId') productId: string) {
     return this.wishlistService.removeProduct(user.sub, productId);
   }

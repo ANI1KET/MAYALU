@@ -3,11 +3,9 @@ import {
 } from '@nestjs/common';
 import {
   ApiTags, ApiOperation, ApiCookieAuth, ApiBody, ApiParam, ApiQuery,
-  ApiCreatedResponse, ApiOkResponse, ApiBadRequestResponse,
-  ApiNotFoundResponse, ApiUnauthorizedResponse,
 } from '@nestjs/swagger';
 import {
-  PlaceOrderResponseDto, OrderListResponseDto, OrderDto, ErrorResponseDto,
+  PlaceOrderResponseDto, OrderListResponseDto, OrderDto,
 } from '../../common/swagger/response.dto';
 import { OrdersService } from './orders.service';
 import { AuthGuard } from '../../common/guards/auth.guard';
@@ -15,6 +13,7 @@ import { CurrentUser } from '../../common/decorators/index';
 import { SmsService } from '../../common/services/sms.service';
 import { JwtService } from '../../common/services/jwt.service';
 import { PlaceOrderDto, OrderFilterDto } from './dto/order.dto';
+import { ApiOkEnvelope, ApiCreatedEnvelope, ApiStandardErrors } from '../../common/decorators/api-responses.decorator';
 
 @ApiTags('Orders')
 @UseGuards(AuthGuard)
@@ -33,16 +32,14 @@ export class OrdersController {
       'increments coupon usage atomically, clears cart, sends SMS confirmation. ' +
       'Returns `stalePriceWarnings` array if any prices changed since items were added to cart.',
   })
-  @ApiCreatedResponse({ type: PlaceOrderResponseDto, description: 'Order placed successfully' })
-  @ApiBadRequestResponse({
-    type: ErrorResponseDto,
-    description:
+  @ApiCreatedEnvelope(PlaceOrderResponseDto, 'Order placed successfully')
+  @ApiStandardErrors({
+    badRequest:
       'EMPTY_CART | ITEMS_UNAVAILABLE | DELIVERY_UNSERVICEABLE | COD_NOT_AVAILABLE | ' +
-      'INSUFFICIENT_STOCK | COUPON_NOT_FOUND | COUPON_EXPIRED | COUPON_EXHAUSTED | ' +
-      'COUPON_USER_LIMIT | COUPON_MIN_ORDER',
+      'INSUFFICIENT_STOCK | COUPON_NOT_FOUND | COUPON_NOT_STARTED | COUPON_EXPIRED | ' +
+      'COUPON_EXHAUSTED | MIN_ORDER_REQUIRED | COUPON_ALREADY_USED | VALIDATION_ERROR',
+    notFound: 'Address',
   })
-  @ApiNotFoundResponse({ type: ErrorResponseDto, description: 'ADDRESS_NOT_FOUND' })
-  @ApiUnauthorizedResponse({ type: ErrorResponseDto, description: 'MISSING_ACCESS_TOKEN' })
   placeOrder(@CurrentUser() user: { sub: string }, @Body() dto: PlaceOrderDto) {
     return this.ordersService.placeOrder(user.sub, dto);
   }
@@ -52,8 +49,8 @@ export class OrdersController {
   @ApiQuery({ name: 'status', required: false, enum: ['pending','confirmed','packed','shipped','delivered','cancelled','returned'] })
   @ApiQuery({ name: 'page', required: false, type: Number })
   @ApiQuery({ name: 'limit', required: false, type: Number })
-  @ApiOkResponse({ type: OrderListResponseDto, description: 'Paginated order list' })
-  @ApiUnauthorizedResponse({ type: ErrorResponseDto, description: 'MISSING_ACCESS_TOKEN' })
+  @ApiOkEnvelope(OrderListResponseDto, 'Paginated order list')
+  @ApiStandardErrors({ badRequest: true })
   getOrders(@CurrentUser() user: { sub: string }, @Query() filter: OrderFilterDto) {
     return this.ordersService.getOrders(user.sub, filter);
   }
@@ -61,9 +58,8 @@ export class OrdersController {
   @Get(':id')
   @ApiOperation({ summary: 'Get order detail with items and full status history' })
   @ApiParam({ name: 'id', description: 'Order UUID' })
-  @ApiOkResponse({ type: OrderDto, description: 'Full order detail' })
-  @ApiNotFoundResponse({ type: ErrorResponseDto, description: 'ORDER_NOT_FOUND' })
-  @ApiUnauthorizedResponse({ type: ErrorResponseDto, description: 'MISSING_ACCESS_TOKEN' })
+  @ApiOkEnvelope(OrderDto, 'Full order detail')
+  @ApiStandardErrors({ notFound: 'Order' })
   getOrderDetail(@CurrentUser() user: { sub: string }, @Param('id') id: string) {
     return this.ordersService.getOrderDetail(id, user.sub);
   }

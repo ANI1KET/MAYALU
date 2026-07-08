@@ -3,9 +3,8 @@ import {
 } from '@nestjs/common';
 import {
   ApiTags, ApiOperation, ApiCookieAuth,
-  ApiOkResponse, ApiUnauthorizedResponse,
 } from '@nestjs/swagger';
-import { NavigationResponseDto, ErrorResponseDto } from '../../common/swagger/response.dto';
+import { NavigationResponseDto } from '../../common/swagger/response.dto';
 import { eq, and, isNull, sql } from 'drizzle-orm';
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
 import * as schema from '../../database/schema/index';
@@ -14,6 +13,7 @@ import { AuthGuard } from '../../common/guards/auth.guard';
 import { CurrentUser } from '../../common/decorators/index';
 import { JwtService } from '../../common/services/jwt.service';
 import { getConfig } from '../../config/app.config';
+import { ApiOkEnvelope, ApiStandardErrors } from '../../common/decorators/api-responses.decorator';
 import {
   MENU_BY_ROLE,
   ROLE_PERMISSIONS,
@@ -243,8 +243,8 @@ export class NavigationController {
       'badge counts from indexed partial queries. ' +
       '3 parallel DB calls maximum.',
   })
-  @ApiOkResponse({ type: NavigationResponseDto, description: 'Role-based navigation with live badge counts' })
-  @ApiUnauthorizedResponse({ type: ErrorResponseDto, description: 'MISSING_ACCESS_TOKEN' })
+  @ApiOkEnvelope(NavigationResponseDto, 'Role-based navigation with live badge counts')
+  @ApiStandardErrors()
   getNavigation(@CurrentUser() user: { sub: string }): Promise<NavigationResponse> {
     return this.navigationService.getNavigation(user.sub);
   }

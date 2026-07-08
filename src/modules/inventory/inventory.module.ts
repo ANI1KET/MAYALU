@@ -3,17 +3,16 @@ import {
 } from '@nestjs/common';
 import {
   ApiTags, ApiOperation, ApiCookieAuth, ApiBody, ApiParam, ApiQuery,
-  ApiOkResponse, ApiCreatedResponse, ApiBadRequestResponse,
-  ApiUnauthorizedResponse, ApiNotFoundResponse,
   ApiProperty, ApiPropertyOptional,
 } from '@nestjs/swagger';
 import {
-  WarehouseDto, InventoryItemDto, MessageResponseDto, ErrorResponseDto,
+  WarehouseDto, InventoryItemDto, MessageResponseDto,
 } from '../../common/swagger/response.dto';
 import { IsString, IsNumber, IsEnum, IsOptional } from 'class-validator';
 import { InventoryService } from './inventory.service';
 import { AuthGuard } from '../../common/guards/auth.guard';
 import { JwtService } from '../../common/services/jwt.service';
+import { ApiOkEnvelope, ApiCreatedEnvelope, ApiOkEnvelopeSchema, ApiStandardErrors } from '../../common/decorators/api-responses.decorator';
 
 class CreateWarehouseDto {
   @ApiProperty({ example: 'Main Warehouse - Thamel' })
@@ -53,8 +52,8 @@ export class InventoryController {
   @ApiBody({ type: CreateWarehouseDto })
   @ApiOperation({ summary: 'Create warehouse', description: 'Creates a named warehouse for the shop. First warehouse becomes the default.' })
   @ApiQuery({ name: 'shopId', required: true })
-  @ApiCreatedResponse({ type: WarehouseDto, description: 'Warehouse created' })
-  @ApiUnauthorizedResponse({ type: ErrorResponseDto, description: 'MISSING_ACCESS_TOKEN' })
+  @ApiCreatedEnvelope(WarehouseDto, 'Warehouse created')
+  @ApiStandardErrors({ badRequest: true })
   createWarehouse(@Query('shopId') shopId: string, @Body() dto: CreateWarehouseDto) {
     return this.inventoryService.createWarehouse(shopId, dto.name, dto.addressId);
   }
@@ -62,8 +61,8 @@ export class InventoryController {
   @Get('warehouses')
   @ApiOperation({ summary: 'List warehouses for a shop' })
   @ApiQuery({ name: 'shopId', required: true })
-  @ApiOkResponse({ type: [WarehouseDto], description: 'Shop warehouses' })
-  @ApiUnauthorizedResponse({ type: ErrorResponseDto, description: 'MISSING_ACCESS_TOKEN' })
+  @ApiOkEnvelope([WarehouseDto], 'Shop warehouses')
+  @ApiStandardErrors()
   getWarehouses(@Query('shopId') shopId: string) {
     return this.inventoryService.getWarehouses(shopId);
   }
@@ -74,8 +73,8 @@ export class InventoryController {
     description: 'Returns stock levels for all variants across all warehouses. Quantity available = onHand - reserved (computed inline).',
   })
   @ApiQuery({ name: 'shopId', required: true })
-  @ApiOkResponse({ type: [InventoryItemDto], description: 'Inventory rows with computed quantity_available' })
-  @ApiUnauthorizedResponse({ type: ErrorResponseDto, description: 'MISSING_ACCESS_TOKEN' })
+  @ApiOkEnvelope([InventoryItemDto], 'Inventory rows with computed quantity_available')
+  @ApiStandardErrors()
   getInventory(@Query('shopId') shopId: string) {
     return this.inventoryService.getInventory(shopId);
   }
@@ -83,8 +82,8 @@ export class InventoryController {
   @Get('low-stock')
   @ApiOperation({ summary: 'Low stock alerts', description: 'Items where (quantityOnHand - quantityReserved) ≤ lowStockThreshold. Uses expression index for fast lookup.' })
   @ApiQuery({ name: 'shopId', required: true })
-  @ApiOkResponse({ type: [InventoryItemDto], description: 'Low stock items' })
-  @ApiUnauthorizedResponse({ type: ErrorResponseDto, description: 'MISSING_ACCESS_TOKEN' })
+  @ApiOkEnvelope([InventoryItemDto], 'Low stock items')
+  @ApiStandardErrors()
   getLowStock(@Query('shopId') shopId: string) {
     return this.inventoryService.getLowStock(shopId);
   }
@@ -96,9 +95,11 @@ export class InventoryController {
     description: 'Append-only adjustment. Type determines delta direction (restock = positive, damage = negative). Creates an immutable transaction log entry.',
   })
   @ApiQuery({ name: 'shopId', required: true })
-  @ApiOkResponse({ type: MessageResponseDto, description: 'Stock adjusted' })
-  @ApiBadRequestResponse({ type: ErrorResponseDto, description: 'INSUFFICIENT_STOCK | INVENTORY_NOT_FOUND' })
-  @ApiUnauthorizedResponse({ type: ErrorResponseDto, description: 'MISSING_ACCESS_TOKEN' })
+  @ApiOkEnvelope(MessageResponseDto, 'Stock adjusted')
+  @ApiStandardErrors({
+    badRequest: 'INSUFFICIENT_STOCK | NO_INVENTORY_RECORD',
+    notFound: 'Warehouse',
+  })
   adjustStock(@Query('shopId') shopId: string, @Body() dto: AdjustStockBodyDto) {
     return this.inventoryService.adjustStock(shopId, dto);
   }
@@ -106,14 +107,16 @@ export class InventoryController {
   @Get(':inventoryId/transactions')
   @ApiOperation({ summary: 'Get transaction log for an inventory row', description: 'Returns last 100 stock movements (sales, restocks, adjustments) sorted by newest.' })
   @ApiParam({ name: 'inventoryId', description: 'Inventory row UUID' })
-  @ApiOkResponse({ schema: { type: 'array', items: { type: 'object', properties: {
-    id: { type: 'string' }, type: { type: 'string', example: 'sale' },
-    quantityDelta: { type: 'number', example: -2 },
-    quantityAfter: { type: 'number', example: 48 },
-    createdAt: { type: 'string', format: 'date-time' },
-  }}}, description: 'Last 100 inventory transactions' })
-  @ApiNotFoundResponse({ type: ErrorResponseDto, description: 'INVENTORY_NOT_FOUND' })
-  @ApiUnauthorizedResponse({ type: ErrorResponseDto, description: 'MISSING_ACCESS_TOKEN' })
+  @ApiOkEnvelopeSchema(
+    { type: 'array', items: { type: 'object', properties: {
+      id: { type: 'string' }, type: { type: 'string', example: 'sale' },
+      quantityDelta: { type: 'number', example: -2 },
+      quantityAfter: { type: 'number', example: 48 },
+      createdAt: { type: 'string', format: 'date-time' },
+    } } },
+    'Last 100 inventory transactions',
+  )
+  @ApiStandardErrors()
   getTransactions(@Param('inventoryId') inventoryId: string) {
     return this.inventoryService.getTransactions(inventoryId);
   }

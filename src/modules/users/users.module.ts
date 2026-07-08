@@ -2,12 +2,8 @@ import {
   Injectable, Inject, NotFoundException, Module,
   Controller, Get, Patch, Post, Body, UseGuards,
 } from '@nestjs/common';
-import {
-  ApiTags, ApiOperation, ApiCookieAuth, ApiBody, ApiParam,
-  ApiOkResponse, ApiCreatedResponse, ApiUnauthorizedResponse, ApiNotFoundResponse,
-  ApiPropertyOptional, ApiProperty,
-} from '@nestjs/swagger';
-import { UserDto, AddressDto, MessageResponseDto, ErrorResponseDto } from '../../common/swagger/response.dto';
+import { ApiTags, ApiOperation, ApiCookieAuth, ApiBody, ApiPropertyOptional, ApiProperty } from '@nestjs/swagger';
+import { UserDto, AddressDto } from '../../common/swagger/response.dto';
 import { IsString, IsOptional, IsEnum, IsBoolean, Length } from 'class-validator';
 import { eq } from 'drizzle-orm';
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
@@ -16,6 +12,7 @@ import { DATABASE_TOKEN } from '../../database/database.module';
 import { AuthGuard } from '../../common/guards/auth.guard';
 import { CurrentUser } from '../../common/decorators/index';
 import { JwtService } from '../../common/services/jwt.service';
+import { ApiOkEnvelope, ApiCreatedEnvelope, ApiStandardErrors } from '../../common/decorators/api-responses.decorator';
 
 class UpdateProfileDto {
   @ApiPropertyOptional({ example: 'Sita Rai', description: '2–100 characters' })
@@ -29,15 +26,34 @@ class UpdateProfileDto {
 }
 
 class CreateAddressDto {
+  @ApiProperty({ enum: ['home', 'work', 'other'], example: 'home' })
   @IsEnum(['home', 'work', 'other']) type!: 'home' | 'work' | 'other';
+
+  @ApiProperty({ example: 'Sita Rai' })
   @IsString() fullName!: string;
+
+  @ApiProperty({ example: '+9779841234567' })
   @IsString() phone!: string;
+
+  @ApiProperty({ example: 'Thamel, House 23' })
   @IsString() addressLine!: string;
+
+  @ApiPropertyOptional({ example: 'Near Thamel Chowk' })
   @IsOptional() @IsString() landmark?: string;
+
+  @ApiProperty({ example: 'Kathmandu' })
   @IsString() city!: string;
+
+  @ApiProperty({ example: 'Bagmati' })
   @IsString() district!: string;
+
+  @ApiPropertyOptional({ example: '44600' })
   @IsOptional() @IsString() pincode?: string;
+
+  @ApiProperty({ enum: ['inside_valley', 'outside_valley', 'remote'], example: 'inside_valley' })
   @IsEnum(['inside_valley', 'outside_valley', 'remote']) zone!: 'inside_valley' | 'outside_valley' | 'remote';
+
+  @ApiPropertyOptional({ example: false, description: 'Setting true unsets the previous default address' })
   @IsOptional() @IsBoolean() isDefault?: boolean;
 }
 
@@ -95,8 +111,8 @@ export class UsersController {
 
   @Get('me')
   @ApiOperation({ summary: 'Get current user profile' })
-  @ApiOkResponse({ type: UserDto, description: 'Authenticated user profile' })
-  @ApiUnauthorizedResponse({ type: ErrorResponseDto, description: 'MISSING_ACCESS_TOKEN' })
+  @ApiOkEnvelope(UserDto, 'Authenticated user profile')
+  @ApiStandardErrors({ notFound: 'User' })
   getProfile(@CurrentUser() user: { sub: string }) {
     return this.usersService.getProfile(user.sub);
   }
@@ -104,16 +120,16 @@ export class UsersController {
   @Patch('me')
   @ApiBody({ type: UpdateProfileDto })
   @ApiOperation({ summary: 'Update profile (name, email, avatar)' })
-  @ApiOkResponse({ type: UserDto, description: 'Updated user profile' })
-  @ApiUnauthorizedResponse({ type: ErrorResponseDto, description: 'MISSING_ACCESS_TOKEN' })
+  @ApiOkEnvelope(UserDto, 'Updated user profile')
+  @ApiStandardErrors({ badRequest: true, notFound: 'User' })
   updateProfile(@CurrentUser() user: { sub: string }, @Body() dto: UpdateProfileDto) {
     return this.usersService.updateProfile(user.sub, dto);
   }
 
   @Get('me/addresses')
   @ApiOperation({ summary: 'Get my saved delivery addresses' })
-  @ApiOkResponse({ type: [AddressDto], description: 'Addresses sorted by isDefault desc' })
-  @ApiUnauthorizedResponse({ type: ErrorResponseDto, description: 'MISSING_ACCESS_TOKEN' })
+  @ApiOkEnvelope([AddressDto], 'Addresses sorted by isDefault desc')
+  @ApiStandardErrors()
   getAddresses(@CurrentUser() user: { sub: string }) {
     return this.usersService.getAddresses(user.sub);
   }
@@ -121,8 +137,8 @@ export class UsersController {
   @Post('me/addresses')
   @ApiBody({ type: CreateAddressDto })
   @ApiOperation({ summary: 'Add delivery address' })
-  @ApiCreatedResponse({ type: AddressDto, description: 'Address saved' })
-  @ApiUnauthorizedResponse({ type: ErrorResponseDto, description: 'MISSING_ACCESS_TOKEN' })
+  @ApiCreatedEnvelope(AddressDto, 'Address saved')
+  @ApiStandardErrors({ badRequest: true })
   createAddress(@CurrentUser() user: { sub: string }, @Body() dto: CreateAddressDto) {
     return this.usersService.createAddress(user.sub, dto);
   }

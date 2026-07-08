@@ -4,11 +4,9 @@ import {
 } from '@nestjs/common';
 import {
   ApiTags, ApiOperation, ApiCookieAuth, ApiBody, ApiParam,
-  ApiOkResponse, ApiCreatedResponse, ApiBadRequestResponse,
-  ApiNotFoundResponse, ApiUnauthorizedResponse, ApiConflictResponse,
   ApiProperty, ApiPropertyOptional,
 } from '@nestjs/swagger';
-import { ReviewDto, MessageResponseDto, ErrorResponseDto } from '../../common/swagger/response.dto';
+import { ReviewDto } from '../../common/swagger/response.dto';
 import { IsString, IsNumber, IsOptional, IsUUID, Min, Max, Length } from 'class-validator';
 import { eq, and, sql } from 'drizzle-orm';
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
@@ -18,6 +16,7 @@ import { AuthGuard } from '../../common/guards/auth.guard';
 import { CurrentUser, Public } from '../../common/decorators/index';
 import { JwtService } from '../../common/services/jwt.service';
 import { REVIEW } from '../../common/constants/index';
+import { ApiOkEnvelope, ApiCreatedEnvelope, ApiStandardErrors } from '../../common/decorators/api-responses.decorator';
 
 class CreateReviewDto {
   @ApiProperty({ example: '550e8400-e29b-41d4-a716-446655440000', description: 'Order UUID — must contain this product with status delivered' })
@@ -165,7 +164,8 @@ export class ReviewsController {
   @Get('product/:productId')
   @ApiOperation({ summary: 'Get approved reviews for a product' })
   @ApiParam({ name: 'productId', description: 'Product UUID' })
-  @ApiOkResponse({ type: [ReviewDto], description: 'Approved reviews sorted by newest' })
+  @ApiOkEnvelope([ReviewDto], 'Approved reviews sorted by newest')
+  @ApiStandardErrors({ auth: false })
   getProductReviews(@Param('productId') productId: string) {
     return this.reviewsService.getProductReviews(productId);
   }
@@ -179,10 +179,11 @@ export class ReviewsController {
     description: 'Requires a delivered order containing the product. One review per user per product.',
   })
   @ApiParam({ name: 'productId', description: 'Product UUID' })
-  @ApiCreatedResponse({ type: ReviewDto, description: 'Review submitted (pending moderation)' })
-  @ApiBadRequestResponse({ type: ErrorResponseDto, description: 'PRODUCT_NOT_IN_ORDER | ORDER_NOT_DELIVERED' })
-  @ApiConflictResponse({ type: ErrorResponseDto, description: 'REVIEW_ALREADY_EXISTS' })
-  @ApiUnauthorizedResponse({ type: ErrorResponseDto, description: 'MISSING_ACCESS_TOKEN' })
+  @ApiCreatedEnvelope(ReviewDto, 'Review submitted (pending moderation)')
+  @ApiStandardErrors({
+    badRequest: 'ORDER_NOT_DELIVERED | PRODUCT_NOT_IN_ORDER | REVIEW_EXISTS',
+    notFound: 'Product',
+  })
   create(
     @CurrentUser() user: { sub: string },
     @Param('productId') productId: string,

@@ -3,9 +3,8 @@ import {
 } from '@nestjs/common';
 import {
   ApiTags, ApiOperation, ApiCookieAuth, ApiParam,
-  ApiOkResponse, ApiUnauthorizedResponse, ApiNotFoundResponse,
 } from '@nestjs/swagger';
-import { NotificationDto, MessageResponseDto, ErrorResponseDto } from '../../common/swagger/response.dto';
+import { NotificationDto, MessageResponseDto } from '../../common/swagger/response.dto';
 import { eq, and } from 'drizzle-orm';
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
 import * as schema from '../../database/schema/index';
@@ -14,6 +13,7 @@ import { AuthGuard } from '../../common/guards/auth.guard';
 import { CurrentUser } from '../../common/decorators/index';
 import { JwtService } from '../../common/services/jwt.service';
 import { NOTIFICATION } from '../../common/constants/index';
+import { ApiOkEnvelope, ApiStandardErrors } from '../../common/decorators/api-responses.decorator';
 
 @Injectable()
 export class NotificationsService {
@@ -63,8 +63,8 @@ export class NotificationsController {
 
   @Get()
   @ApiOperation({ summary: 'Get my notifications', description: 'Returns up to 50 notifications sorted by newest. Uses partial index on (userId, isRead WHERE false).' })
-  @ApiOkResponse({ type: [NotificationDto], description: 'Notifications list' })
-  @ApiUnauthorizedResponse({ type: ErrorResponseDto, description: 'MISSING_ACCESS_TOKEN' })
+  @ApiOkEnvelope([NotificationDto], 'Notifications list (max 50, newest first)')
+  @ApiStandardErrors()
   getNotifications(@CurrentUser() user: { sub: string }) {
     return this.notificationsService.getForUser(user.sub);
   }
@@ -72,15 +72,21 @@ export class NotificationsController {
   @Patch(':id/read')
   @ApiOperation({ summary: 'Mark notification as read' })
   @ApiParam({ name: 'id', description: 'Notification UUID' })
-  @ApiOkResponse({ type: MessageResponseDto, description: 'Marked as read' })
-  @ApiNotFoundResponse({ type: ErrorResponseDto, description: 'NOTIFICATION_NOT_FOUND' })
+  @ApiOkEnvelope(
+    MessageResponseDto,
+    'Notification marked as read. Note: this is a no-op that still returns success if the ' +
+      'notification id does not exist or belongs to another user — the service performs a ' +
+      'scoped UPDATE with no existence check, so no 404 is ever thrown here.',
+  )
+  @ApiStandardErrors()
   markRead(@CurrentUser() user: { sub: string }, @Param('id') id: string) {
     return this.notificationsService.markRead(user.sub, id);
   }
 
   @Patch('read-all')
   @ApiOperation({ summary: 'Mark all notifications as read' })
-  @ApiOkResponse({ type: MessageResponseDto, description: 'All notifications marked as read' })
+  @ApiOkEnvelope(MessageResponseDto, 'All unread notifications marked as read')
+  @ApiStandardErrors()
   markAllRead(@CurrentUser() user: { sub: string }) {
     return this.notificationsService.markAllRead(user.sub);
   }

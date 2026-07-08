@@ -13,18 +13,38 @@ export class MessageResponseDto {
   message!: string;
 }
 
-export class ErrorResponseDto {
-  @ApiProperty({ example: 400 })
-  statusCode!: number;
+export class FieldErrorDto {
+  @ApiProperty({ example: 'phone' })
+  field!: string;
 
+  @ApiProperty({ example: 'phone must be a valid Nepali phone number' })
+  message!: string;
+}
+
+export class ErrorDetailDto {
   @ApiProperty({ example: 'VALIDATION_ERROR' })
   code!: string;
 
   @ApiProperty({ example: 'Validation failed' })
   message!: string;
 
-  @ApiPropertyOptional({ example: '2025-01-01T00:00:00.000Z' })
-  timestamp?: string;
+  @ApiPropertyOptional({ type: () => [FieldErrorDto], description: 'Present for VALIDATION_ERROR responses' })
+  errors?: FieldErrorDto[];
+}
+
+/** Matches the exact JSON shape produced by HttpExceptionFilter for every non-2xx response. */
+export class ErrorResponseDto {
+  @ApiProperty({ example: false })
+  success!: false;
+
+  @ApiProperty({ type: () => ErrorDetailDto })
+  error!: ErrorDetailDto;
+
+  @ApiProperty({ example: '/api/v1/orders' })
+  path!: string;
+
+  @ApiProperty({ example: '2025-01-01T00:00:00.000Z' })
+  timestamp!: string;
 }
 
 export class PaginationMetaDto {
@@ -182,6 +202,33 @@ export class ProductDto {
 export class ProductDetailDto extends ProductDto {
   @ApiProperty({ type: () => [ProductVariantDto] }) variants!: ProductVariantDto[];
   @ApiProperty({ type: () => [ProductMediaDto] }) media!: ProductMediaDto[];
+}
+
+// ─── Wishlist ──────────────────────────────────────────────────────────────
+
+export class WishlistProductSummaryDto {
+  @ApiProperty({ example: '550e8400-e29b-41d4-a716-446655440000' }) id!: string;
+  @ApiProperty({ example: 'Nepali Silk Saree - Red' }) name!: string;
+  @ApiProperty({ example: 'nepali-silk-saree-red' }) slug!: string;
+  @ApiPropertyOptional({ nullable: true }) shortDescription!: string | null;
+  @ApiProperty({ example: 'active' }) status!: string;
+  @ApiProperty({ example: '4.30' }) avgRating!: string;
+  @ApiProperty({ example: 142 }) totalSold!: number;
+  @ApiProperty({ example: false }) isFeatured!: boolean;
+  @ApiProperty({ example: true }) isTrending!: boolean;
+  @ApiPropertyOptional({ type: () => [ProductMediaDto], description: 'At most 1 media item' }) media?: ProductMediaDto[];
+  @ApiPropertyOptional({ type: () => [ProductVariantDto], description: 'At most 1 variant' }) variants?: ProductVariantDto[];
+}
+
+export class WishlistItemDto {
+  @ApiProperty({ example: '550e8400-e29b-41d4-a716-446655440000' }) productId!: string;
+  @ApiProperty({ type: () => WishlistProductSummaryDto }) product!: WishlistProductSummaryDto;
+}
+
+export class WishlistResponseDto {
+  @ApiPropertyOptional({ example: '550e8400-e29b-41d4-a716-446655440000', nullable: true, description: 'Absent if the user has never added anything' }) id?: string;
+  @ApiPropertyOptional({ example: '550e8400-e29b-41d4-a716-446655440000', nullable: true }) userId?: string;
+  @ApiProperty({ type: () => [WishlistItemDto] }) items!: WishlistItemDto[];
 }
 
 export class ProductListResponseDto {
