@@ -16,10 +16,11 @@ import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
 import * as schema from '../../database/schema/index';
 import { DATABASE_TOKEN } from '../../database/database.module';
 import { AdminGuard } from '../../common/guards/admin.guard';
+import { Public } from '../../common/decorators/index';
 import { SmsService } from '../../common/services/sms.service';
 import { MediaService } from '../../common/services/media.service';
 import { parsePagination, buildPaginatedResult } from '../../common/utils/pagination.util';
-import { ApiOkEnvelope, ApiCreatedEnvelope, ApiOkEnvelopeSchema, ApiCreatedEnvelopeSchema, ApiStandardErrors } from '../../common/decorators/api-responses.decorator';
+import { ApiOkEnvelope, ApiCreatedEnvelope, ApiOkEnvelopeSchema, ApiCreatedEnvelopeSchema, ApiStandardErrors, ApiUnauthorized } from '../../common/decorators/api-responses.decorator';
 
 class UpdateOrderStatusDto {
   @ApiProperty({ enum: ['confirmed', 'packed', 'shipped', 'delivered', 'cancelled', 'refunded'], example: 'shipped' })
@@ -317,6 +318,7 @@ export class AdminService {
 }
 
 @ApiTags('Admin')
+@Public()
 @UseGuards(AdminGuard)
 @ApiSecurity('X-Admin-Key')
 @Controller('admin')
@@ -329,7 +331,8 @@ export class AdminController {
     description: 'Approximate counts via pg_stat_user_tables (O(1) — no full table scans). Pending orders is always exact.',
   })
   @ApiOkEnvelope(AdminDashboardDto, 'Platform-wide metrics')
-  @ApiStandardErrors()
+  @ApiUnauthorized('INVALID_ADMIN_KEY — missing or invalid X-Admin-Key header')
+  @ApiStandardErrors({ auth: false })
   getDashboard() { return this.adminService.getDashboard(); }
 
   @Get('orders')
@@ -338,7 +341,8 @@ export class AdminController {
   @ApiQuery({ name: 'page', required: false, type: Number })
   @ApiQuery({ name: 'limit', required: false, type: Number })
   @ApiOkEnvelope(OrderListResponseDto, 'All orders paginated')
-  @ApiStandardErrors({ badRequest: true })
+  @ApiUnauthorized('INVALID_ADMIN_KEY — missing or invalid X-Admin-Key header')
+  @ApiStandardErrors({ auth: false, badRequest: true })
   getOrders(
     @Query('page') page?: number,
     @Query('limit') limit?: number,
@@ -353,7 +357,8 @@ export class AdminController {
   })
   @ApiParam({ name: 'id', description: 'Order UUID' })
   @ApiOkEnvelope(OrderDto, 'Updated order')
-  @ApiStandardErrors({ badRequest: true, notFound: 'Order' })
+  @ApiUnauthorized('INVALID_ADMIN_KEY — missing or invalid X-Admin-Key header')
+  @ApiStandardErrors({ auth: false, badRequest: true, notFound: 'Order' })
   updateOrderStatus(@Param('id') id: string, @Body() dto: UpdateOrderStatusDto) {
     return this.adminService.updateOrderStatus(id, dto);
   }
@@ -364,7 +369,8 @@ export class AdminController {
   @ApiQuery({ name: 'limit', required: false, type: Number })
   @ApiQuery({ name: 'status', required: false, enum: ['pending','active','suspended','rejected'] })
   @ApiOkEnvelope([ShopDto], 'Shops list')
-  @ApiStandardErrors({ badRequest: true })
+  @ApiUnauthorized('INVALID_ADMIN_KEY — missing or invalid X-Admin-Key header')
+  @ApiStandardErrors({ auth: false, badRequest: true })
   getShops(@Query('page') page?: number, @Query('limit') limit?: number) {
     return this.adminService.getShops(page, limit);
   }
@@ -374,7 +380,8 @@ export class AdminController {
   @ApiOperation({ summary: '[Admin] Approve, suspend or reject a shop' })
   @ApiParam({ name: 'id', description: 'Shop UUID' })
   @ApiOkEnvelope(ShopDto, 'Updated shop')
-  @ApiStandardErrors({ badRequest: true, notFound: 'Shop' })
+  @ApiUnauthorized('INVALID_ADMIN_KEY — missing or invalid X-Admin-Key header')
+  @ApiStandardErrors({ auth: false, badRequest: true, notFound: 'Shop' })
   updateShopStatus(@Param('id') id: string, @Body() dto: UpdateShopStatusDto) {
     return this.adminService.updateShopStatus(id, dto);
   }
@@ -386,7 +393,8 @@ export class AdminController {
     { type: 'object', properties: { id: { type: 'string', format: 'uuid' }, code: { type: 'string', example: 'DASHAIN30' } } },
     'Coupon created',
   )
-  @ApiStandardErrors({ badRequest: true })
+  @ApiUnauthorized('INVALID_ADMIN_KEY — missing or invalid X-Admin-Key header')
+  @ApiStandardErrors({ auth: false, badRequest: true })
   createCoupon(@Body() dto: CreateCouponDto) { return this.adminService.createCoupon(dto); }
 
   @Patch('coupons/:id/toggle')
@@ -396,28 +404,32 @@ export class AdminController {
     { type: 'object', properties: { id: { type: 'string', format: 'uuid' }, code: { type: 'string' }, isActive: { type: 'boolean' } } },
     'Coupon state toggled — returns the updated coupon row',
   )
-  @ApiStandardErrors({ notFound: 'Coupon' })
+  @ApiUnauthorized('INVALID_ADMIN_KEY — missing or invalid X-Admin-Key header')
+  @ApiStandardErrors({ auth: false, notFound: 'Coupon' })
   toggleCoupon(@Param('id') id: string) { return this.adminService.toggleCoupon(id); }
 
   @Post('banners')
   @ApiBody({ type: CreateBannerDto })
   @ApiOperation({ summary: '[Admin] Create banner' })
   @ApiCreatedEnvelope(BannerDto, 'Banner created')
-  @ApiStandardErrors({ badRequest: true })
+  @ApiUnauthorized('INVALID_ADMIN_KEY — missing or invalid X-Admin-Key header')
+  @ApiStandardErrors({ auth: false, badRequest: true })
   createBanner(@Body() dto: CreateBannerDto) { return this.adminService.createBanner(dto); }
 
   @Patch('banners/:id/toggle')
   @ApiOperation({ summary: '[Admin] Toggle banner active/inactive' })
   @ApiParam({ name: 'id', description: 'Banner UUID' })
   @ApiOkEnvelope(BannerDto, 'Banner state toggled')
-  @ApiStandardErrors({ notFound: 'Banner' })
+  @ApiUnauthorized('INVALID_ADMIN_KEY — missing or invalid X-Admin-Key header')
+  @ApiStandardErrors({ auth: false, notFound: 'Banner' })
   toggleBanner(@Param('id') id: string) { return this.adminService.toggleBanner(id); }
 
   @Get('reviews/pending')
   @ApiOperation({ summary: '[Admin] Get reviews pending moderation' })
   @ApiQuery({ name: 'page', required: false, type: Number })
   @ApiOkEnvelope([ReviewDto], 'Pending reviews')
-  @ApiStandardErrors()
+  @ApiUnauthorized('INVALID_ADMIN_KEY — missing or invalid X-Admin-Key header')
+  @ApiStandardErrors({ auth: false })
   getPendingReviews(@Query('page') page?: number) {
     return this.adminService.getPendingReviews(page);
   }
@@ -429,7 +441,8 @@ export class AdminController {
   })
   @ApiParam({ name: 'id', description: 'Review UUID' })
   @ApiOkEnvelope(ReviewDto, 'Approved review')
-  @ApiStandardErrors({ notFound: 'Review' })
+  @ApiUnauthorized('INVALID_ADMIN_KEY — missing or invalid X-Admin-Key header')
+  @ApiStandardErrors({ auth: false, notFound: 'Review' })
   approveReview(@Param('id') id: string) { return this.adminService.approveReview(id); }
 }
 

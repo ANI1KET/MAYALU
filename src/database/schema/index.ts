@@ -358,7 +358,11 @@ export const attributeOptions = pgTable(
     sortOrder: integer('sort_order').default(0).notNull(),
   },
   (t) => ({
-    attributeIdIdx: index('attr_opts_attribute_id_idx').on(t.attributeId),
+    // Composite unique index also serves attributeId-only lookups (leftmost-prefix),
+    // so it replaces the old standalone attr_opts_attribute_id_idx.
+    // Backs seedAttributes()'s .onConflictDoNothing() — without this, reseeding
+    // silently doubled every option (no constraint for Postgres to conflict on).
+    attributeValueIdx: uniqueIndex('attr_opts_attribute_value_idx').on(t.attributeId, t.value),
   }),
 );
 
@@ -1172,6 +1176,15 @@ export const productAttributeValuesRelations = relations(productAttributeValues,
 export const productMediaRelations = relations(productMedia, ({ one }) => ({
   product: one(products, { fields: [productMedia.productId], references: [products.id] }),
   variant: one(productVariants, { fields: [productMedia.variantId], references: [productVariants.id] }),
+}));
+
+export const productTagsRelations = relations(productTags, ({ one }) => ({
+  product: one(products, { fields: [productTags.productId], references: [products.id] }),
+  tag: one(tags, { fields: [productTags.tagId], references: [tags.id] }),
+}));
+
+export const tagsRelations = relations(tags, ({ many }) => ({
+  productTags: many(productTags),
 }));
 
 export const notificationsRelations = relations(notifications, ({ one }) => ({

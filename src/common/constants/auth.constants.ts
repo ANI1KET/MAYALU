@@ -8,7 +8,7 @@
 export const ARGON2_CONFIG = {
   type: 'argon2id' as const,
   memoryCost: 4_096,   // 4 MB – fast enough for OTP, safe enough against GPU attacks
-  timeCost: 1,
+  timeCost: 2,         // argon2 requires timeCost >= 2 — 1 throws AssertionError at hash time
   parallelism: 1,
 } as const;
 
