@@ -1,4 +1,4 @@
-import { CouponsService } from '../coupons.module';
+import { CouponsService } from '../coupons.service';
 import { BadRequestException } from '@nestjs/common';
 
 const baseCoupon = {
@@ -10,31 +10,29 @@ const baseCoupon = {
   startsAt: null, expiresAt: null,
 };
 
-const makeDb = (coupon = baseCoupon, userUsages: unknown[] = []) => ({
-  query: {
-    coupons: { findFirst: jest.fn().mockResolvedValue(coupon) },
-    couponUsages: { findMany: jest.fn().mockResolvedValue(userUsages) },
-  },
+const makeRepo = (coupon = baseCoupon, userUsages: unknown[] = []) => ({
+  findActiveByCode: jest.fn().mockResolvedValue(coupon),
+  findUsagesByCouponAndUser: jest.fn().mockResolvedValue(userUsages),
 });
 
 describe('CouponsService', () => {
   let service: CouponsService;
-  let db: ReturnType<typeof makeDb>;
+  let repo: ReturnType<typeof makeRepo>;
 
   beforeEach(() => {
-    db = makeDb();
-    service = new CouponsService(db as never);
+    repo = makeRepo();
+    service = new CouponsService(repo as never);
   });
 
   it('throws COUPON_NOT_FOUND when code is not found or inactive', async () => {
-    db.query.coupons.findFirst.mockResolvedValue(null);
+    repo.findActiveByCode.mockResolvedValue(null);
     await expect(service.validate('BADCODE', 'u1', 1000)).rejects.toMatchObject({
       response: expect.objectContaining({ code: 'COUPON_NOT_FOUND' }),
     });
   });
 
   it('throws COUPON_EXPIRED when expiresAt is in the past', async () => {
-    db.query.coupons.findFirst.mockResolvedValue({
+    repo.findActiveByCode.mockResolvedValue({
       ...baseCoupon, expiresAt: new Date(Date.now() - 1000),
     });
     await expect(service.validate('SAVE10', 'u1', 1000)).rejects.toMatchObject({
@@ -43,7 +41,7 @@ describe('CouponsService', () => {
   });
 
   it('throws COUPON_NOT_STARTED when startsAt is in the future', async () => {
-    db.query.coupons.findFirst.mockResolvedValue({
+    repo.findActiveByCode.mockResolvedValue({
       ...baseCoupon, startsAt: new Date(Date.now() + 86400000),
     });
     await expect(service.validate('SAVE10', 'u1', 1000)).rejects.toMatchObject({
@@ -52,7 +50,7 @@ describe('CouponsService', () => {
   });
 
   it('throws COUPON_EXHAUSTED when usageCount >= usageLimitTotal', async () => {
-    db.query.coupons.findFirst.mockResolvedValue({ ...baseCoupon, usageCount: 100, usageLimitTotal: 100 });
+    repo.findActiveByCode.mockResolvedValue({ ...baseCoupon, usageCount: 100, usageLimitTotal: 100 });
     await expect(service.validate('SAVE10', 'u1', 1000)).rejects.toMatchObject({
       response: expect.objectContaining({ code: 'COUPON_EXHAUSTED' }),
     });
@@ -65,7 +63,7 @@ describe('CouponsService', () => {
   });
 
   it('throws COUPON_ALREADY_USED when user has used coupon max times', async () => {
-    db.query.couponUsages.findMany.mockResolvedValue([{ id: 'cu1' }]); // 1 usage, limit=1
+    repo.findUsagesByCouponAndUser.mockResolvedValue([{ id: 'cu1' }]); // 1 usage, limit=1
     await expect(service.validate('SAVE10', 'u1', 1000)).rejects.toMatchObject({
       response: expect.objectContaining({ code: 'COUPON_ALREADY_USED' }),
     });
@@ -78,14 +76,14 @@ describe('CouponsService', () => {
   });
 
   it('caps percentage discount at maxDiscount', async () => {
-    db.query.coupons.findFirst.mockResolvedValue({ ...baseCoupon, discountValue: '30', maxDiscount: '150' });
+    repo.findActiveByCode.mockResolvedValue({ ...baseCoupon, discountValue: '30', maxDiscount: '150' });
     const result = await service.validate('SAVE10', 'u1', 1000);
     // 30% of 1000 = 300, capped at 150
     expect(result.discountAmount).toBe(150);
   });
 
   it('calculates fixed discount correctly', async () => {
-    db.query.coupons.findFirst.mockResolvedValue({
+    repo.findActiveByCode.mockResolvedValue({
       ...baseCoupon, discountType: 'fixed', discountValue: '100', maxDiscount: null,
     });
     const result = await service.validate('FLAT100', 'u1', 1000);
@@ -93,7 +91,7 @@ describe('CouponsService', () => {
   });
 
   it('caps fixed discount at order amount', async () => {
-    db.query.coupons.findFirst.mockResolvedValue({
+    repo.findActiveByCode.mockResolvedValue({
       ...baseCoupon, discountType: 'fixed', discountValue: '2000', maxDiscount: null, minOrderAmount: null,
     });
     const result = await service.validate('BIGFLAT', 'u1', 800);

@@ -1,8 +1,6 @@
-import { Injectable, Inject, NotFoundException } from '@nestjs/common';
-import { eq, sql } from 'drizzle-orm';
-import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import * as schema from '../../database/schema/index';
-import { DATABASE_TOKEN } from '../../database/database.module';
+import { CategoriesRepository } from './categories.repository';
 
 export interface CategoryNode {
   id: string;
@@ -18,14 +16,11 @@ export interface CategoryNode {
 @Injectable()
 export class CategoriesService {
   constructor(
-    @Inject(DATABASE_TOKEN) private readonly db: NodePgDatabase<typeof schema>,
+    private readonly categoriesRepository: CategoriesRepository,
   ) {}
 
   async findAll(): Promise<CategoryNode[]> {
-    const cats = await this.db.query.categories.findMany({
-      where: eq(schema.categories.isActive, true),
-      orderBy: (c, { asc }) => [asc(c.level), asc(c.sortOrder)],
-    });
+    const cats = await this.categoriesRepository.findAllActive();
     return this.buildTree(cats);
   }
 
@@ -50,9 +45,7 @@ export class CategoriesService {
   }
 
   async findBySlug(slug: string) {
-    const cat = await this.db.query.categories.findFirst({
-      where: eq(schema.categories.slug, slug),
-    });
+    const cat = await this.categoriesRepository.findBySlug(slug);
 
     if (!cat) {
       throw new NotFoundException({ code: 'CATEGORY_NOT_FOUND', message: `Category "${slug}" not found` });
@@ -62,9 +55,7 @@ export class CategoriesService {
   }
 
   async findById(id: string) {
-    const cat = await this.db.query.categories.findFirst({
-      where: eq(schema.categories.id, id),
-    });
+    const cat = await this.categoriesRepository.findById(id);
 
     if (!cat) {
       throw new NotFoundException({ code: 'CATEGORY_NOT_FOUND', message: 'Category not found' });
@@ -75,13 +66,7 @@ export class CategoriesService {
 
   async getSubtreeIds(categoryId: string): Promise<string[]> {
     const cat = await this.findById(categoryId);
-
-    // Use ltree <@ operator for efficient subtree query
-    const result = await this.db.execute<{ id: string }>(
-      sql`SELECT id FROM categories WHERE path <@ ${cat.path}::ltree AND is_active = true`,
-    );
-
-    return result.rows.map((r) => r.id);
+    return this.categoriesRepository.findSubtreeIds(cat.path);
   }
 
   async getBreadcrumb(categoryId: string): Promise<typeof schema.categories.$inferSelect[]> {
@@ -89,10 +74,6 @@ export class CategoriesService {
     const pathParts = cat.path.split('.');
     const paths = pathParts.map((_, i) => pathParts.slice(0, i + 1).join('.'));
 
-    const result = await this.db.execute<typeof schema.categories.$inferSelect>(
-      sql`SELECT * FROM categories WHERE path::text = ANY(${paths}) ORDER BY level ASC`,
-    );
-
-    return result.rows;
+    return this.categoriesRepository.findByPaths(paths);
   }
 }

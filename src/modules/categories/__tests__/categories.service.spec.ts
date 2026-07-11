@@ -8,23 +8,21 @@ const flatCats = [
   { id: 'c4', parentId: null, path: 'men', name: 'Men', slug: 'men', level: 0, imageUrl: null, sortOrder: 2, isActive: true, children: [] },
 ];
 
-const makeDb = () => ({
-  query: {
-    categories: {
-      findMany: jest.fn().mockResolvedValue(flatCats),
-      findFirst: jest.fn().mockResolvedValue(flatCats[0]),
-    },
-  },
-  execute: jest.fn().mockResolvedValue({ rows: [{ id: 'c1' }, { id: 'c2' }, { id: 'c3' }] }),
+const makeRepository = () => ({
+  findAllActive: jest.fn().mockResolvedValue(flatCats),
+  findBySlug: jest.fn().mockResolvedValue(flatCats[0]),
+  findById: jest.fn().mockResolvedValue(flatCats[0]),
+  findSubtreeIds: jest.fn().mockResolvedValue(['c1', 'c2', 'c3']),
+  findByPaths: jest.fn().mockResolvedValue([]),
 });
 
 describe('CategoriesService', () => {
   let service: CategoriesService;
-  let db: ReturnType<typeof makeDb>;
+  let repository: ReturnType<typeof makeRepository>;
 
   beforeEach(() => {
-    db = makeDb();
-    service = new CategoriesService(db as never);
+    repository = makeRepository();
+    service = new CategoriesService(repository as never);
   });
 
   it('buildTree: nests children correctly under parent', () => {
@@ -45,7 +43,7 @@ describe('CategoriesService', () => {
   });
 
   it('findBySlug: throws NotFoundException when not found', async () => {
-    db.query.categories.findFirst.mockResolvedValue(null);
+    repository.findBySlug.mockResolvedValue(null);
     await expect(service.findBySlug('no-cat')).rejects.toMatchObject({
       response: expect.objectContaining({ code: 'CATEGORY_NOT_FOUND' }),
     });
