@@ -1,74 +1,31 @@
 import {
-  Injectable, Inject, BadRequestException, NotFoundException,
+  Injectable, BadRequestException, NotFoundException,
 } from '@nestjs/common';
-import { eq, and, desc, sql } from 'drizzle-orm';
-import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
+import { eq, and } from 'drizzle-orm';
 import * as schema from '../../database/schema/index';
-import { DATABASE_TOKEN } from '../../database/database.module';
 import { SmsService } from '../../common/services/sms.service';
 import { generateOrderNumber } from '../../common/utils/slug.util';
 import { parsePagination, buildPaginatedResult } from '../../common/utils/pagination.util';
 import { DELIVERY_CHARGE_NPR } from '../../common/constants/index';
 import type { PlaceOrderDto, OrderFilterDto } from './dto/order.dto';
-
-interface CartItemWithVariant {
-  id: string;
-  quantity: number;
-  priceSnapshot: string;
-  variantId: string;
-  variant: {
-    id: string;
-    sku: string;
-    name: string;
-    price: string;
-    isActive: boolean;
-    imageUrl?: string | null;
-    product: {
-      id: string;
-      name: string;
-      status: string;
-      shopId: string;
-    };
-    attributeValues: Array<{
-      attribute: { name: string };
-      attributeOption: { label: string } | null;
-      customValue: string | null;
-    }>;
-  };
-}
+import { OrdersRepository, type CartItemWithVariant } from './orders.repository';
 
 @Injectable()
 export class OrdersService {
   constructor(
-    @Inject(DATABASE_TOKEN) private readonly db: NodePgDatabase<typeof schema>,
+    private readonly ordersRepository: OrdersRepository,
     private readonly smsService: SmsService,
   ) {}
 
   async placeOrder(userId: string, dto: PlaceOrderDto) {
     // 1. Verify address belongs to user
-    const address = await this.db.query.addresses.findFirst({
-      where: and(eq(schema.addresses.id, dto.addressId), eq(schema.addresses.userId, userId)),
-    });
+    const address = await this.ordersRepository.findAddressForUser(dto.addressId, userId);
     if (!address) {
       throw new NotFoundException({ code: 'ADDRESS_NOT_FOUND', message: 'Delivery address not found' });
     }
 
     // 2. Load cart
-    const cart = await this.db.query.carts.findFirst({
-      where: eq(schema.carts.userId, userId),
-      with: {
-        items: {
-          with: {
-            variant: {
-              with: {
-                product: true,
-                attributeValues: { with: { attribute: true, attributeOption: true } as never } as never,
-              } as never,
-            },
-          } as never,
-        },
-      } as never,
-    });
+    const cart = await this.ordersRepository.findCartWithItems(userId);
 
     if (!cart) throw new BadRequestException({ code: 'EMPTY_CART', message: 'Your cart is empty' });
 
@@ -81,17 +38,10 @@ export class OrdersService {
     // 2. Validate delivery to this address (before touching stock)
     if (address.zone === 'remote') {
       // Check if any carrier serves remote routes from our origin
-      const remoteZone = await this.db.query.deliveryZones.findFirst({
-        where: eq(schema.deliveryZones.code, 'REMOTE'),
-      });
+      const remoteZone = await this.ordersRepository.findRemoteZone();
 
       if (remoteZone) {
-        const carriers = await this.db.query.carrierZoneRoutes.findMany({
-          where: and(
-            eq(schema.carrierZoneRoutes.destZoneId, remoteZone.id),
-            eq(schema.carrierZoneRoutes.isActive, true),
-          ),
-        });
+        const carriers = await this.ordersRepository.findActiveCarrierRoutesForZone(remoteZone.id);
 
         if (carriers.length === 0) {
           throw new BadRequestException({
@@ -161,142 +111,24 @@ export class OrdersService {
     }
 
     // 7. Atomic transaction
-    const order = await this.db.transaction(async (tx) => {
-      const orderNumber = generateOrderNumber();
-
-      // Insert order
-      const [newOrder] = await tx.insert(schema.orders).values({
-        orderNumber,
-        userId,
-        status: 'pending',
-        paymentMethod: dto.paymentMethod,
-        paymentStatus: dto.paymentMethod === 'cod' ? 'pending' : 'pending',
-        subtotal: String(subtotal),
-        discountAmount: String(discountAmount),
-        deliveryCharge: String(deliveryCharge),
-        totalAmount: String(totalAmount),
-        couponId: coupon?.id ?? null,
-        couponCode: coupon?.code ?? null,
-        shippingAddressSnap: {
-          fullName: address.fullName,
-          phone: address.phone,
-          addressLine: address.addressLine,
-          landmark: address.landmark,
-          city: address.city,
-          district: address.district,
-          pincode: address.pincode,
-          zone: address.zone,
-        },
-        customerNotes: dto.customerNotes ?? null,
-        deliveryZone: address.zone,
-      }).returning();
-
-      if (!newOrder) throw new Error('Failed to create order');
-
-      // Insert order items (SNAPSHOTS)
-      for (const item of cartWithItems.items) {
-        const attributesSnap: Record<string, string> = {};
-        const vWithAttrs = item.variant as typeof item.variant & {
-          attributeValues: Array<{
-            attribute: { name: string };
-            attributeOption: { label: string } | null;
-            customValue: string | null;
-          }>;
-        };
-        for (const av of vWithAttrs.attributeValues ?? []) {
-          attributesSnap[av.attribute.name] = av.attributeOption?.label ?? av.customValue ?? '';
-        }
-
-        await tx.insert(schema.orderItems).values({
-          orderId: newOrder.id,
-          shopId: item.variant.product.shopId,
-          variantId: item.variantId,
-          productNameSnap: item.variant.product.name,
-          variantNameSnap: item.variant.name,
-          skuSnap: item.variant.sku,
-          imageUrlSnap: item.variant.imageUrl ?? null,
-          attributesSnap,
-          priceSnap: item.priceSnapshot,
-          quantity: item.quantity,
-          totalPrice: String(parseFloat(item.priceSnapshot) * item.quantity),
-        });
-
-        // Deduct inventory atomically with stock floor check — prevents race condition overselling
-        const deductResult = await tx.execute<{ id: string; new_on_hand: number }>(
-          sql`UPDATE inventory
-              SET quantity_on_hand = GREATEST(quantity_on_hand - ${item.quantity}, 0),
-                  quantity_reserved = GREATEST(quantity_reserved - ${item.quantity}, 0)
-              WHERE variant_id = ${item.variantId}
-                AND (quantity_on_hand - quantity_reserved) >= ${item.quantity}
-              RETURNING id, quantity_on_hand as new_on_hand`,
-        );
-
-        if (deductResult.rows.length === 0) {
-          // Stock ran out between pre-check and transaction — rollback entire order
-          throw new BadRequestException({
-            code: 'INSUFFICIENT_STOCK',
-            message: `Insufficient stock for "${item.variant.name}". Please refresh your cart.`,
-          });
-        }
-
-        const deducted = deductResult.rows[0]!;
-
-        await tx.insert(schema.inventoryTransactions).values({
-          inventoryId: deducted.id,
-          type: 'sale',
-          quantityDelta: -item.quantity,
-          quantityAfter: deducted.new_on_hand,
-          referenceType: 'order',
-          referenceId: newOrder.id,
-        });
-
-        // Update product totalSold
-        await tx.update(schema.products)
-          .set({ totalSold: sql`total_sold + ${item.quantity}` })
-          .where(eq(schema.products.id, item.variant.product.id));
-      }
-
-      // Order status history
-      await tx.insert(schema.orderStatusHistory).values({
-        orderId: newOrder.id,
-        toStatus: 'pending',
-        note: 'Order placed successfully',
-        changedByUserId: userId,
-      });
-
-      // Atomic coupon increment — prevents concurrent overselling of limited coupons
-      if (coupon) {
-        const updated = await tx.execute<{ id: string }>(
-          sql`UPDATE coupons
-              SET usage_count = usage_count + 1
-              WHERE id = ${coupon.id}
-                AND (usage_limit_total IS NULL OR usage_count < usage_limit_total)
-              RETURNING id`,
-        );
-
-        if (updated.rows.length === 0) {
-          throw new BadRequestException({
-            code: 'COUPON_EXHAUSTED',
-            message: 'Coupon has just reached its usage limit. Please try without a coupon.',
-          });
-        }
-
-        await tx.insert(schema.couponUsages).values({
-          couponId: coupon.id,
-          userId,
-          orderId: newOrder.id,
-          amountSaved: String(discountAmount),
-        });
-      }
-
-      // Clear cart
-      await tx.delete(schema.cartItems).where(eq(schema.cartItems.cartId, cart.id));
-
-      return newOrder;
+    const orderNumber = generateOrderNumber();
+    const order = await this.ordersRepository.runPlaceOrderTransaction({
+      orderNumber,
+      userId,
+      paymentMethod: dto.paymentMethod,
+      subtotal,
+      discountAmount,
+      deliveryCharge,
+      totalAmount,
+      coupon,
+      address,
+      customerNotes: dto.customerNotes,
+      cartId: cart.id,
+      items: cartWithItems.items,
     });
 
     // 8. Send SMS after transaction (async, non-blocking)
-    const user = await this.db.query.users.findFirst({ where: eq(schema.users.id, userId) });
+    const user = await this.ordersRepository.findUserById(userId);
     if (user?.phone) {
       void this.smsService.sendOrderConfirmation(user.phone, order.orderNumber).catch(() => {});
     }
@@ -308,9 +140,7 @@ export class OrdersService {
   }
 
   private async validateCoupon(code: string, userId: string, orderAmount: number) {
-    const coupon = await this.db.query.coupons.findFirst({
-      where: and(eq(schema.coupons.code, code), eq(schema.coupons.isActive, true)),
-    });
+    const coupon = await this.ordersRepository.findActiveCouponByCode(code);
 
     if (!coupon) throw new BadRequestException({ code: 'COUPON_NOT_FOUND', message: `Coupon "${code}" not found` });
 
@@ -331,9 +161,7 @@ export class OrdersService {
       });
     }
 
-    const userUsages = await this.db.query.couponUsages.findMany({
-      where: and(eq(schema.couponUsages.couponId, coupon.id), eq(schema.couponUsages.userId, userId)),
-    });
+    const userUsages = await this.ordersRepository.findCouponUsagesForUser(coupon.id, userId);
 
     if (userUsages.length >= coupon.usageLimitPerUser) {
       throw new BadRequestException({ code: 'COUPON_ALREADY_USED', message: 'You have already used this coupon' });
@@ -365,16 +193,8 @@ export class OrdersService {
       : eq(schema.orders.userId, userId);
 
     const [orders, totalResult] = await Promise.all([
-      this.db.query.orders.findMany({
-        where,
-        orderBy: desc(schema.orders.createdAt),
-        limit,
-        offset,
-        with: { items: true } as never,
-      }),
-      this.db.execute<{ count: string }>(
-        sql`SELECT COUNT(*) as count FROM orders WHERE user_id = ${userId}`,
-      ),
+      this.ordersRepository.findOrdersPaginated(where, limit, offset),
+      this.ordersRepository.countOrdersForUser(userId),
     ]);
 
     const total = parseInt(totalResult.rows[0]?.count ?? '0', 10);
@@ -382,18 +202,12 @@ export class OrdersService {
   }
 
   async getOrderDetail(orderId: string, userId: string) {
-    const order = await this.db.query.orders.findFirst({
-      where: and(eq(schema.orders.id, orderId), eq(schema.orders.userId, userId)),
-      with: { items: true } as never,
-    });
+    const order = await this.ordersRepository.findOrderById(orderId, userId);
 
     if (!order) throw new NotFoundException({ code: 'ORDER_NOT_FOUND', message: 'Order not found' });
 
     // Fetch status history separately for clean ordering
-    const statusHistory = await this.db.query.orderStatusHistory.findMany({
-      where: eq(schema.orderStatusHistory.orderId, orderId),
-      orderBy: (h, { asc }) => [asc(h.changedAt)],
-    });
+    const statusHistory = await this.ordersRepository.findOrderStatusHistory(orderId);
 
     return { ...order, statusHistory };
   }

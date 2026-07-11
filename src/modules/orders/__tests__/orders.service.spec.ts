@@ -1,4 +1,5 @@
 import { OrdersService } from '../orders.service';
+import { OrdersRepository } from '../orders.repository';
 import { NotFoundException, BadRequestException } from '@nestjs/common';
 
 const mockAddress = { id: 'addr1', userId: 'u1', zone: 'inside_valley', fullName: 'Test', phone: '+977', addressLine: 'KTM', city: 'KTM', district: 'KTM', pincode: null, landmark: null };
@@ -42,7 +43,8 @@ describe('OrdersService', () => {
 
   beforeEach(() => {
     db = makeDb();
-    service = new OrdersService(db as never, mockSms as never);
+    const ordersRepository = new OrdersRepository(db as never);
+    service = new OrdersService(ordersRepository, mockSms as never);
   });
 
   it('placeOrder: throws NotFoundException when address not found', async () => {
