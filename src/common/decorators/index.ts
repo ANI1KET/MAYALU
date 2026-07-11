@@ -12,6 +12,7 @@ export interface JwtPayload {
   sub: string;
   phone: string;
   type: string;
+  familyId: string;
   iat?: number;
   exp?: number;
 }

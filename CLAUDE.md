@@ -1,6 +1,10 @@
 # Testing
 
-The primary/main test suite for this API is the **`api-tests/` folder** (Postman collection), not the Jest suites under `src/**/__tests__`. Jest covers unit-level service logic; `api-tests/generate-postman.js` is the source of truth for full endpoint request/response contracts.
+The primary/main testing approach for this API is **data-driven testing via the `api-tests/` folder** (Postman collection) at the repo root, not the Jest suites under `src/**/__tests__`. Jest covers unit-level service logic; `api-tests/generate-postman.js` is the source of truth for full endpoint request/response contracts.
+
+**Whenever any API is changed (new endpoint, changed request/response shape, changed auth/cookie behavior, etc.), the `api-tests/` folder is the main way to test and validate that API — update and regenerate it in the same change, and use it to verify the change actually works end-to-end.**
+
+The `api-tests/` collection runs against **seeded data** (`src/database/seed/index.ts`) — accounts, orders, coupons, etc. If an API change affects the shape, state, or invariants of that seeded data (e.g. new required fields, changed enums/status values, new relations), update `src/database/seed/index.ts` and re-seed in the same change, otherwise the Postman tests will run against stale/mismatched data.
 
 Whenever an endpoint's request/response shape changes, update `api-tests/generate-postman.js` and regenerate in the same change:
 

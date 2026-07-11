@@ -43,11 +43,11 @@ export class TokenService {
     existingFamilyId?: string,
   ): Promise<TokenPair> {
     const config = getConfig();
-    const accessToken = await this.jwtService.sign({ sub: userId, phone, type: 'access' });
+    const familyId = existingFamilyId ?? crypto.randomUUID();
+    const accessToken = await this.jwtService.sign({ sub: userId, phone, type: 'access', familyId });
 
     const rawRefreshToken = generateRawRefreshToken();
     const tokenHash = sha256(rawRefreshToken);
-    const familyId = existingFamilyId ?? crypto.randomUUID();
     const expiresAt = new Date(
       Date.now() + config.JWT_REFRESH_EXPIRE_DAYS * 24 * 60 * 60 * 1_000,
     );
@@ -99,10 +99,7 @@ export class TokenService {
       this.logger.warn(
         `Refresh token reuse detected. Revoking family ${token.familyId} for user ${token.userId}`,
       );
-      await this.db
-        .update(schema.refreshTokens)
-        .set({ revokedAt: new Date() })
-        .where(eq(schema.refreshTokens.familyId, token.familyId));
+      await this.revokeFamily(token.familyId);
 
       throw new ForbiddenException({
         code: 'REFRESH_TOKEN_REUSE_DETECTED',
@@ -132,6 +129,13 @@ export class TokenService {
       .update(schema.refreshTokens)
       .set({ revokedAt: new Date() })
       .where(eq(schema.refreshTokens.id, tokenId));
+  }
+
+  async revokeFamily(familyId: string): Promise<void> {
+    await this.db
+      .update(schema.refreshTokens)
+      .set({ revokedAt: new Date() })
+      .where(eq(schema.refreshTokens.familyId, familyId));
   }
 
   async revokeAllForUser(userId: string): Promise<void> {

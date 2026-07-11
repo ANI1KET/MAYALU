@@ -7,7 +7,7 @@ import { DATABASE_TOKEN } from '../../database/database.module';
 import { JwtService } from '../../common/services/jwt.service';
 import { TokenService, type IssuePairMeta } from '../../common/services/token.service';
 import { SmsService } from '../../common/services/sms.service';
-import { hashOtp, verifyOtp, generateOtp, sha256 } from '../../common/utils/hash.util';
+import { hashOtp, verifyOtp, generateOtp } from '../../common/utils/hash.util';
 import { getConfig } from '../../config/app.config';
 
 @Injectable()
@@ -230,16 +230,8 @@ export class AuthService {
     return { ...tokenPair, user };
   }
 
-  async logout(userId: string, rawRefreshToken: string | undefined): Promise<void> {
-    if (rawRefreshToken) {
-      const tokenHash = sha256(rawRefreshToken);
-      const token = await this.db.query.refreshTokens.findFirst({
-        where: eq(schema.refreshTokens.tokenHash, tokenHash),
-      });
-      if (token) {
-        await this.tokenService.revoke(token.id);
-      }
-    }
+  async logout(userId: string, familyId: string): Promise<void> {
+    await this.tokenService.revokeFamily(familyId);
     this.logger.log(`User ${userId} logged out`);
   }
 

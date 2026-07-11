@@ -157,13 +157,11 @@ export class AuthController {
   @ApiOkEnvelope(MessageResponseDto, 'Logged out — cookies cleared')
   @ApiStandardErrors()
   async logout(
-    @CurrentUser() user: { sub: string },
-    @Req() req: Request,
+    @CurrentUser() user: { sub: string; familyId: string },
     @Res({ passthrough: true }) res: Response,
   ) {
     const config = getConfig();
-    const rawToken = (req.cookies as Record<string, string> | undefined)?.[COOKIE.REFRESH_TOKEN_NAME];
-    await this.authService.logout(user.sub, rawToken);
+    await this.authService.logout(user.sub, user.familyId);
     this.tokenService.clearTokenCookies(res, config.NODE_ENV === 'production');
     return { message: 'Logged out successfully.' };
   }

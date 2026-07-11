@@ -7,12 +7,14 @@ export interface AccessTokenPayload extends JWTPayload {
   sub: string;
   phone: string;
   type: 'access';
+  familyId: string;
 }
 
 export interface SignOptions {
   sub: string;
   phone: string;
   type: 'access';
+  familyId: string;
 }
 
 @Injectable()
@@ -38,7 +40,7 @@ export class JwtService {
   }
 
   async sign(payload: SignOptions): Promise<string> {
-    return new SignJWT({ phone: payload.phone, type: payload.type })
+    return new SignJWT({ phone: payload.phone, type: payload.type, familyId: payload.familyId })
       .setProtectedHeader({ alg: JWT.ALGORITHM })
       .setSubject(payload.sub)
       .setIssuedAt()
@@ -70,7 +72,7 @@ export class JwtService {
         });
       }
 
-      if (!payload.sub || !payload['phone']) {
+      if (!payload.sub || !payload['phone'] || !payload['familyId']) {
         throw new UnauthorizedException({
           code: 'INVALID_TOKEN_PAYLOAD',
           message: 'Token payload is malformed.',

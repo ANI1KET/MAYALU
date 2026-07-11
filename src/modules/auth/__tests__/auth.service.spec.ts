@@ -41,6 +41,7 @@ const mockJwtService = { sign: jest.fn().mockResolvedValue('access-token') };
 const mockTokenService = {
   issuePair: jest.fn().mockResolvedValue({ accessToken: 'at', rawRefreshToken: 'rt' }),
   revoke: jest.fn(),
+  revokeFamily: jest.fn(),
 };
 const mockSmsService = { sendOtp: jest.fn() };
 
@@ -193,12 +194,11 @@ describe('AuthService', () => {
   });
 
   describe('logout', () => {
-    it('calls tokens.revoke when refresh token is provided', async () => {
+    it('revokes the refresh token family', async () => {
       const db = makeDb();
-      db.query.refreshTokens.findFirst.mockResolvedValue({ id: 'rt1' });
       const svc = makeService(db);
-      await svc.logout('u1', 'some-raw-token');
-      expect(mockTokenService.revoke).toHaveBeenCalledWith('rt1');
+      await svc.logout('u1', 'family-1');
+      expect(mockTokenService.revokeFamily).toHaveBeenCalledWith('family-1');
     });
   });
 });

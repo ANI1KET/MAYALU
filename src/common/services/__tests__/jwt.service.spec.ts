@@ -19,7 +19,7 @@ describe('JwtService', () => {
   });
 
   it('should sign and verify a token (round-trip)', async () => {
-    const payload = { sub: 'user-123', phone: '+9779841234567', type: 'access' as const };
+    const payload = { sub: 'user-123', phone: '+9779841234567', type: 'access' as const, familyId: 'fam-1' };
     const token = await service.sign(payload);
     const verified = await service.verify(token);
 
@@ -29,13 +29,13 @@ describe('JwtService', () => {
   });
 
   it('should produce a JWT with 3 dot-separated parts', async () => {
-    const token = await service.sign({ sub: 'u1', phone: '+977', type: 'access' });
+    const token = await service.sign({ sub: 'u1', phone: '+977', type: 'access', familyId: 'fam-1' });
     const parts = token.split('.');
     expect(parts).toHaveLength(3);
   });
 
   it('should reject a tampered payload', async () => {
-    const token = await service.sign({ sub: 'u1', phone: '+977', type: 'access' });
+    const token = await service.sign({ sub: 'u1', phone: '+977', type: 'access', familyId: 'fam-1' });
     const [header, , sig] = token.split('.');
     const tamperedPayload = Buffer.from(JSON.stringify({ sub: 'hacker', phone: '+0', type: 'access', exp: 9999999999 })).toString('base64url');
     const tampered = `${header}.${tamperedPayload}.${sig}`;
@@ -54,7 +54,7 @@ describe('JwtService', () => {
   it('should throw ACCESS_TOKEN_EXPIRED for an expired token', async () => {
     process.env['JWT_ACCESS_EXPIRY'] = '0s';
     const expiredService = new JwtService();
-    const token = await expiredService.sign({ sub: 'u1', phone: '+977', type: 'access' });
+    const token = await expiredService.sign({ sub: 'u1', phone: '+977', type: 'access', familyId: 'fam-1' });
 
     // Wait a tick
     await new Promise((r) => setTimeout(r, 10));
