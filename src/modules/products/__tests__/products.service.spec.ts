@@ -1,4 +1,5 @@
 import { ProductsService } from '../products.service';
+import { ProductsRepository } from '../products.repository';
 import { NotFoundException, ConflictException, BadRequestException } from '@nestjs/common';
 
 process.env['CLOUDINARY_CLOUD_NAME'] = 'test';
@@ -48,7 +49,8 @@ describe('ProductsService', () => {
   beforeEach(() => {
     db = makeDb();
     planGate = makePlanGate();
-    service = new ProductsService(db as never, planGate as never, makeMedia() as never, makeCategories() as never);
+    const repository = new ProductsRepository(db as never);
+    service = new ProductsService(repository, planGate as never, makeMedia() as never, makeCategories() as never);
     jest.clearAllMocks();
   });
 
@@ -68,7 +70,8 @@ describe('ProductsService', () => {
     makeCategories().findById.mockRejectedValue(new NotFoundException('not found'));
     const cats = makeCategories();
     cats.findById.mockRejectedValue(new NotFoundException('Category not found'));
-    service = new ProductsService(db as never, planGate as never, makeMedia() as never, cats as never);
+    const repository = new ProductsRepository(db as never);
+    service = new ProductsService(repository, planGate as never, makeMedia() as never, cats as never);
     await expect(service.create('s1', { name: 'P', slug: 's', categoryId: 'bad-cat' })).rejects.toThrow(NotFoundException);
   });
 
