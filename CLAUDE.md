@@ -13,3 +13,15 @@ node api-tests/generate-postman.js
 ```
 
 This rewrites `mayalu-wears.postman_collection.json`. Don't let it drift out of sync with the actual API.
+
+# Module structure
+
+Every module under `src/modules/<name>/` must split concerns into separate files — never put controller, service, and DB logic together in one file (including `<name>.module.ts`, which should contain only Nest module wiring):
+
+- `<name>.module.ts` — `@Module()` wiring only (controllers/providers/exports)
+- `<name>.controller.ts` — routes, Swagger decorators, request/response mapping — delegates to the service
+- `<name>.service.ts` — business logic only — calls the repository, never the DB client directly
+- `<name>.repository.ts` — all DB access (Drizzle queries) for the module, nothing else
+- `dto/<name>.dto.ts` — request/response DTOs with `class-validator`/`@nestjs/swagger` decorators
+
+Apply this structure to every new module and every new endpoint you add to an existing module. When touching an older module that still bundles these into one file, split it out into this structure as part of that change.
