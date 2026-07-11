@@ -1,21 +1,19 @@
-import { Injectable, Inject, BadRequestException, UnauthorizedException,
+import { Injectable, BadRequestException, UnauthorizedException,
   ConflictException, ForbiddenException, Logger } from '@nestjs/common';
-import { eq, and, gt, isNull, desc, sql } from 'drizzle-orm';
-import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
 import * as schema from '../../database/schema/index';
-import { DATABASE_TOKEN } from '../../database/database.module';
 import { JwtService } from '../../common/services/jwt.service';
 import { TokenService, type IssuePairMeta } from '../../common/services/token.service';
 import { SmsService } from '../../common/services/sms.service';
 import { hashOtp, verifyOtp, generateOtp } from '../../common/utils/hash.util';
 import { getConfig } from '../../config/app.config';
+import { AuthRepository } from './auth.repository';
 
 @Injectable()
 export class AuthService {
   private readonly logger = new Logger(AuthService.name);
 
   constructor(
-    @Inject(DATABASE_TOKEN) private readonly db: NodePgDatabase<typeof schema>,
+    private readonly authRepository: AuthRepository,
     private readonly jwtService: JwtService,
     private readonly tokenService: TokenService,
     private readonly smsService: SmsService,
@@ -31,15 +29,7 @@ export class AuthService {
     const cooldownBoundary = new Date(Date.now() - cooldownSeconds * 1000);
 
     // Check for recent OTP (cooldown)
-    const recentOtp = await this.db.query.otpTokens.findFirst({
-      where: and(
-        eq(schema.otpTokens.phone, phone),
-        eq(schema.otpTokens.purpose, purpose),
-        gt(schema.otpTokens.createdAt, cooldownBoundary),
-        isNull(schema.otpTokens.usedAt),
-      ),
-      orderBy: desc(schema.otpTokens.createdAt),
-    });
+    const recentOtp = await this.authRepository.findRecentOtp(phone, purpose, cooldownBoundary);
 
     if (recentOtp) {
       const secondsRemaining = Math.ceil(
@@ -56,7 +46,7 @@ export class AuthService {
     const codeHash = await hashOtp(otp);
     const expiresAt = new Date(Date.now() + config.OTP_EXPIRY_MINUTES * 60 * 1000);
 
-    await this.db.insert(schema.otpTokens).values({
+    await this.authRepository.insertOtpToken({
       phone,
       codeHash,
       purpose,
@@ -82,15 +72,7 @@ export class AuthService {
   > {
     const config = getConfig();
 
-    const record = await this.db.query.otpTokens.findFirst({
-      where: and(
-        eq(schema.otpTokens.phone, phone),
-        eq(schema.otpTokens.purpose, purpose),
-        gt(schema.otpTokens.expiresAt, new Date()),
-        isNull(schema.otpTokens.usedAt),
-      ),
-      orderBy: desc(schema.otpTokens.createdAt),
-    });
+    const record = await this.authRepository.findActiveOtp(phone, purpose);
 
     if (!record) {
       throw new UnauthorizedException({
@@ -110,10 +92,7 @@ export class AuthService {
 
     if (!isValid) {
       // Atomic increment — prevents race condition on concurrent requests
-      await this.db
-        .update(schema.otpTokens)
-        .set({ attempts: sql`attempts + 1` })
-        .where(eq(schema.otpTokens.id, record.id));
+      await this.authRepository.incrementOtpAttempts(record.id);
 
       const remainingAttempts = config.OTP_MAX_ATTEMPTS - record.attempts - 1;
       throw new UnauthorizedException({
@@ -125,17 +104,12 @@ export class AuthService {
     }
 
     // Mark OTP as used
-    await this.db
-      .update(schema.otpTokens)
-      .set({ usedAt: new Date() })
-      .where(eq(schema.otpTokens.id, record.id));
+    await this.authRepository.markOtpUsed(record.id);
 
     if (purpose === 'register') {
       // Registration is completed via POST /auth/register (name/email required).
       // Only confirm phone ownership here — do not create the user or a session yet.
-      const existing = await this.db.query.users.findFirst({
-        where: eq(schema.users.phone, phone),
-      });
+      const existing = await this.authRepository.findUserByPhone(phone);
       if (existing) {
         throw new ConflictException({
           code: 'PHONE_TAKEN',
@@ -146,18 +120,16 @@ export class AuthService {
     }
 
     // Upsert user
-    let user = await this.db.query.users.findFirst({
-      where: eq(schema.users.phone, phone),
-    });
+    let user = await this.authRepository.findUserByPhone(phone);
 
     const isNewUser = !user;
 
     if (!user) {
-      const [created] = await this.db.insert(schema.users).values({
+      const created = await this.authRepository.createUser({
         phone,
         isPhoneVerified: true,
         status: 'active',
-      }).returning();
+      });
       user = created!;
     } else {
       if (user.status === 'suspended') {
@@ -173,10 +145,7 @@ export class AuthService {
         });
       }
 
-      await this.db
-        .update(schema.users)
-        .set({ lastLoginAt: new Date(), updatedAt: new Date(), isPhoneVerified: true })
-        .where(eq(schema.users.id, user.id));
+      await this.authRepository.markUserLoggedIn(user.id);
     }
 
     const tokenPair = await this.tokenService.issuePair(user.id, user.phone, meta);
@@ -189,9 +158,7 @@ export class AuthService {
     email: string | undefined,
     meta: IssuePairMeta,
   ): Promise<{ accessToken: string; rawRefreshToken: string; user: typeof schema.users.$inferSelect }> {
-    const existing = await this.db.query.users.findFirst({
-      where: eq(schema.users.phone, phone),
-    });
+    const existing = await this.authRepository.findUserByPhone(phone);
 
     if (existing) {
       throw new ConflictException({
@@ -201,13 +168,7 @@ export class AuthService {
     }
 
     // Check OTP was verified
-    const usedOtp = await this.db.query.otpTokens.findFirst({
-      where: and(
-        eq(schema.otpTokens.phone, phone),
-        eq(schema.otpTokens.purpose, 'register'),
-      ),
-      orderBy: desc(schema.otpTokens.createdAt),
-    });
+    const usedOtp = await this.authRepository.findLatestOtpByPurpose(phone, 'register');
 
     if (!usedOtp?.usedAt) {
       throw new BadRequestException({
@@ -216,13 +177,13 @@ export class AuthService {
       });
     }
 
-    const [user] = await this.db.insert(schema.users).values({
+    const user = await this.authRepository.createRegisteredUser({
       phone,
       fullName,
       email: email ?? null,
       isPhoneVerified: true,
       status: 'active',
-    }).returning();
+    });
 
     if (!user) throw new BadRequestException({ code: 'REGISTRATION_FAILED', message: 'Registration failed. Please try again.' });
 
@@ -236,9 +197,7 @@ export class AuthService {
   }
 
   async getMe(userId: string): Promise<typeof schema.users.$inferSelect> {
-    const user = await this.db.query.users.findFirst({
-      where: eq(schema.users.id, userId),
-    });
+    const user = await this.authRepository.findUserById(userId);
     if (!user) throw new UnauthorizedException({ code: 'USER_NOT_FOUND', message: 'User not found' });
     return user;
   }

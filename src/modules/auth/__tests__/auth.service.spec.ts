@@ -1,4 +1,5 @@
 import { AuthService } from '../auth.service';
+import { AuthRepository } from '../auth.repository';
 import { BadRequestException, UnauthorizedException, ConflictException, ForbiddenException } from '@nestjs/common';
 
 jest.mock('../../../common/utils/hash.util', () => ({
@@ -45,8 +46,10 @@ const mockTokenService = {
 };
 const mockSmsService = { sendOtp: jest.fn() };
 
-const makeService = (db: ReturnType<typeof makeDb>) =>
-  new AuthService(db as never, mockJwtService as never, mockTokenService as never, mockSmsService as never);
+const makeService = (db: ReturnType<typeof makeDb>) => {
+  const authRepository = new AuthRepository(db as never);
+  return new AuthService(authRepository, mockJwtService as never, mockTokenService as never, mockSmsService as never);
+};
 
 describe('AuthService', () => {
   beforeEach(() => jest.clearAllMocks());

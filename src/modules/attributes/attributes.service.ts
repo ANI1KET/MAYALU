@@ -1,8 +1,6 @@
-import { Injectable, Inject, NotFoundException } from '@nestjs/common';
-import { eq, inArray } from 'drizzle-orm';
-import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import * as schema from '../../database/schema/index';
-import { DATABASE_TOKEN } from '../../database/database.module';
+import { AttributesRepository } from './attributes.repository';
 
 type AttributeOption = typeof schema.attributeOptions.$inferSelect;
 type Attribute = typeof schema.attributes.$inferSelect;
@@ -24,7 +22,7 @@ function groupOptionsByAttribute(options: AttributeOption[]): Map<string, Attrib
 @Injectable()
 export class AttributesService {
   constructor(
-    @Inject(DATABASE_TOKEN) private readonly db: NodePgDatabase<typeof schema>,
+    private readonly attributesRepository: AttributesRepository,
   ) {}
 
   /**
@@ -39,12 +37,8 @@ export class AttributesService {
    */
   async findAll(): Promise<Array<Attribute & { options: AttributeOption[] }>> {
     const [attrs, options] = await Promise.all([
-      this.db.query.attributes.findMany({
-        orderBy: (a, { asc }) => [asc(a.sortOrder)],
-      }),
-      this.db.query.attributeOptions.findMany({
-        orderBy: (o, { asc }) => [asc(o.sortOrder)],
-      }),
+      this.attributesRepository.findAllAttributes(),
+      this.attributesRepository.findAllOptions(),
     ]);
 
     const optionsByAttr = groupOptionsByAttribute(options);
@@ -53,18 +47,13 @@ export class AttributesService {
   }
 
   async findByCode(code: string): Promise<Attribute & { options: AttributeOption[] }> {
-    const attr = await this.db.query.attributes.findFirst({
-      where: eq(schema.attributes.code, code),
-    });
+    const attr = await this.attributesRepository.findAttributeByCode(code);
 
     if (!attr) {
       throw new NotFoundException({ code: 'ATTRIBUTE_NOT_FOUND', message: `Attribute "${code}" not found` });
     }
 
-    const options = await this.db.query.attributeOptions.findMany({
-      where: eq(schema.attributeOptions.attributeId, attr.id),
-      orderBy: (o, { asc }) => [asc(o.sortOrder)],
-    });
+    const options = await this.attributesRepository.findOptionsByAttributeId(attr.id);
 
     return { ...attr, options };
   }
@@ -76,30 +65,20 @@ export class AttributesService {
   async getForCategory(categoryId: string): Promise<
     Array<Attribute & { options: AttributeOption[]; isRequired: boolean; isVariantAttribute: boolean }>
   > {
-    const cat = await this.db.query.categories.findFirst({
-      where: eq(schema.categories.id, categoryId),
-    });
+    const cat = await this.attributesRepository.findCategoryById(categoryId);
 
     if (!cat) {
       throw new NotFoundException({ code: 'CATEGORY_NOT_FOUND', message: 'Category not found' });
     }
 
-    const catAttrs = await this.db.query.categoryAttributes.findMany({
-      where: eq(schema.categoryAttributes.categoryId, categoryId),
-      orderBy: (ca, { asc }) => [asc(ca.sortOrder)],
-    });
+    const catAttrs = await this.attributesRepository.findCategoryAttributes(categoryId);
 
     const attributeIds = catAttrs.map((ca) => ca.attributeId);
     if (attributeIds.length === 0) return [];
 
     const [attrs, options] = await Promise.all([
-      this.db.query.attributes.findMany({
-        where: inArray(schema.attributes.id, attributeIds),
-      }),
-      this.db.query.attributeOptions.findMany({
-        where: inArray(schema.attributeOptions.attributeId, attributeIds),
-        orderBy: (o, { asc }) => [asc(o.sortOrder)],
-      }),
+      this.attributesRepository.findAttributesByIds(attributeIds),
+      this.attributesRepository.findOptionsByAttributeIds(attributeIds),
     ]);
 
     const optionsByAttr = groupOptionsByAttribute(options);

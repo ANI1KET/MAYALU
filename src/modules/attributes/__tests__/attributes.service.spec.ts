@@ -1,27 +1,26 @@
 import { AttributesService } from '../attributes.service';
-import { NotFoundException } from '@nestjs/common';
 
 const mockAttr = { id: 'a1', name: 'Color', code: 'color', inputType: 'color', isFilterable: true, options: [] };
 const mockCatAttr = { categoryId: 'c1', attributeId: 'a1', isRequired: true, isVariantAttribute: true, sortOrder: 0 };
 
-const makeDb = () => ({
-  query: {
-    attributes: {
-      findMany: jest.fn().mockResolvedValue([mockAttr]),
-      findFirst: jest.fn().mockResolvedValue(mockAttr),
-    },
-    categories: { findFirst: jest.fn().mockResolvedValue({ id: 'c1', name: 'Kurti' }) },
-    categoryAttributes: { findMany: jest.fn().mockResolvedValue([mockCatAttr]) },
-  },
+const makeRepo = () => ({
+  findAllAttributes: jest.fn().mockResolvedValue([mockAttr]),
+  findAllOptions: jest.fn().mockResolvedValue([]),
+  findAttributeByCode: jest.fn().mockResolvedValue(mockAttr),
+  findOptionsByAttributeId: jest.fn().mockResolvedValue([]),
+  findCategoryById: jest.fn().mockResolvedValue({ id: 'c1', name: 'Kurti' }),
+  findCategoryAttributes: jest.fn().mockResolvedValue([mockCatAttr]),
+  findAttributesByIds: jest.fn().mockResolvedValue([mockAttr]),
+  findOptionsByAttributeIds: jest.fn().mockResolvedValue([]),
 });
 
 describe('AttributesService', () => {
   let service: AttributesService;
-  let db: ReturnType<typeof makeDb>;
+  let repo: ReturnType<typeof makeRepo>;
 
   beforeEach(() => {
-    db = makeDb();
-    service = new AttributesService(db as never);
+    repo = makeRepo();
+    service = new AttributesService(repo as never);
   });
 
   it('findAll: returns attributes with options', async () => {
@@ -36,14 +35,14 @@ describe('AttributesService', () => {
   });
 
   it('findByCode: throws NotFoundException for unknown code', async () => {
-    db.query.attributes.findFirst.mockResolvedValue(null);
+    repo.findAttributeByCode.mockResolvedValue(null);
     await expect(service.findByCode('nonexistent')).rejects.toMatchObject({
       response: expect.objectContaining({ code: 'ATTRIBUTE_NOT_FOUND' }),
     });
   });
 
   it('getForCategory: throws NotFoundException for invalid categoryId', async () => {
-    db.query.categories.findFirst.mockResolvedValue(null);
+    repo.findCategoryById.mockResolvedValue(null);
     await expect(service.getForCategory('bad-cat')).rejects.toMatchObject({
       response: expect.objectContaining({ code: 'CATEGORY_NOT_FOUND' }),
     });
@@ -57,7 +56,7 @@ describe('AttributesService', () => {
   });
 
   it('getForCategory: returns empty array for category with no attributes', async () => {
-    db.query.categoryAttributes.findMany.mockResolvedValue([]);
+    repo.findCategoryAttributes.mockResolvedValue([]);
     const result = await service.getForCategory('c1');
     expect(result).toHaveLength(0);
   });
