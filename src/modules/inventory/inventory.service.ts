@@ -1,45 +1,29 @@
 import {
-  Injectable, Inject, BadRequestException, NotFoundException,
+  Injectable, BadRequestException, NotFoundException,
 } from '@nestjs/common';
-import { eq, and, lte, sql } from 'drizzle-orm';
-import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
-import * as schema from '../../database/schema/index';
-import { DATABASE_TOKEN } from '../../database/database.module';
+import { InventoryRepository } from './inventory.repository';
+import type { AdjustStockDto } from './dto/inventory.dto';
 
-export interface AdjustStockDto {
-  variantId: string;
-  warehouseId: string;
-  delta: number;
-  type: 'restock' | 'adjustment' | 'damage' | 'return' | 'opening';
-  notes?: string;
-  userId?: string;
-}
+export type { AdjustStockDto };
 
 @Injectable()
 export class InventoryService {
   constructor(
-    @Inject(DATABASE_TOKEN) private readonly db: NodePgDatabase<typeof schema>,
+    private readonly inventoryRepository: InventoryRepository,
   ) {}
 
   // ─── Warehouses ───────────────────────────────────────────────
 
   async createWarehouse(shopId: string, name: string, addressId?: string) {
-    const [warehouse] = await this.db.insert(schema.warehouses).values({
-      shopId, name, addressId: addressId ?? null, isActive: true, isDefault: false,
-    }).returning();
-    return warehouse;
+    return this.inventoryRepository.createWarehouse(shopId, name, addressId);
   }
 
   async getWarehouses(shopId: string) {
-    return this.db.query.warehouses.findMany({
-      where: eq(schema.warehouses.shopId, shopId),
-    });
+    return this.inventoryRepository.getWarehouses(shopId);
   }
 
   async assertWarehouseInShop(warehouseId: string, shopId: string) {
-    const wh = await this.db.query.warehouses.findFirst({
-      where: and(eq(schema.warehouses.id, warehouseId), eq(schema.warehouses.shopId, shopId)),
-    });
+    const wh = await this.inventoryRepository.findWarehouseInShop(warehouseId, shopId);
     if (!wh) {
       throw new NotFoundException({
         code: 'WAREHOUSE_NOT_FOUND',
@@ -52,47 +36,11 @@ export class InventoryService {
   // ─── Inventory ────────────────────────────────────────────────
 
   async getInventory(shopId: string) {
-    return this.db.execute<{
-      inventory_id: string;
-      variant_id: string;
-      warehouse_id: string;
-      warehouse_name: string;
-      sku: string;
-      quantity_on_hand: number;
-      quantity_reserved: number;
-      quantity_available: number;
-      low_stock_threshold: number;
-    }>(
-      sql`SELECT i.id as inventory_id, i.variant_id, i.warehouse_id, w.name as warehouse_name,
-               pv.sku, i.quantity_on_hand, i.quantity_reserved,
-               (i.quantity_on_hand - i.quantity_reserved) as quantity_available,
-               i.low_stock_threshold
-          FROM inventory i
-          JOIN warehouses w ON w.id = i.warehouse_id
-          JOIN product_variants pv ON pv.id = i.variant_id
-          JOIN products p ON p.id = pv.product_id
-          WHERE w.shop_id = ${shopId}`,
-    );
+    return this.inventoryRepository.getInventory(shopId);
   }
 
   async getLowStock(shopId: string) {
-    return this.db.execute<{
-      inventory_id: string;
-      sku: string;
-      product_name: string;
-      quantity_available: number;
-      low_stock_threshold: number;
-    }>(
-      sql`SELECT i.id as inventory_id, pv.sku, p.name as product_name,
-               (i.quantity_on_hand - i.quantity_reserved) as quantity_available,
-               i.low_stock_threshold
-          FROM inventory i
-          JOIN warehouses w ON w.id = i.warehouse_id
-          JOIN product_variants pv ON pv.id = i.variant_id
-          JOIN products p ON p.id = pv.product_id
-          WHERE w.shop_id = ${shopId}
-            AND (i.quantity_on_hand - i.quantity_reserved) <= i.low_stock_threshold`,
-    );
+    return this.inventoryRepository.getLowStock(shopId);
   }
 
   async adjustStock(shopId: string, dto: AdjustStockDto) {
@@ -100,12 +48,10 @@ export class InventoryService {
     await this.assertWarehouseInShop(dto.warehouseId, shopId);
 
     // Get or create inventory record
-    let inv = await this.db.query.inventory.findFirst({
-      where: and(
-        eq(schema.inventory.variantId, dto.variantId),
-        eq(schema.inventory.warehouseId, dto.warehouseId),
-      ),
-    });
+    let inv = await this.inventoryRepository.findInventoryByVariantAndWarehouse(
+      dto.variantId,
+      dto.warehouseId,
+    );
 
     if (!inv) {
       if (dto.delta < 0) {
@@ -114,14 +60,7 @@ export class InventoryService {
           message: 'Cannot decrease stock: no inventory record exists. Create with opening stock first.',
         });
       }
-      const [created] = await this.db.insert(schema.inventory).values({
-        variantId: dto.variantId,
-        warehouseId: dto.warehouseId,
-        quantityOnHand: 0,
-        quantityReserved: 0,
-        lowStockThreshold: 5,
-        allowBackorder: false,
-      }).returning();
+      const created = await this.inventoryRepository.createInventory(dto.variantId, dto.warehouseId);
       inv = created!;
     }
 
@@ -135,12 +74,10 @@ export class InventoryService {
       });
     }
 
-    await this.db.update(schema.inventory)
-      .set({ quantityOnHand: newOnHand })
-      .where(eq(schema.inventory.id, inv.id));
+    await this.inventoryRepository.updateQuantityOnHand(inv.id, newOnHand);
 
     // Append-only transaction log
-    await this.db.insert(schema.inventoryTransactions).values({
+    await this.inventoryRepository.insertTransaction({
       inventoryId: inv.id,
       type: dto.type,
       quantityDelta: dto.delta,
@@ -153,17 +90,11 @@ export class InventoryService {
   }
 
   async getTransactions(inventoryId: string) {
-    return this.db.query.inventoryTransactions.findMany({
-      where: eq(schema.inventoryTransactions.inventoryId, inventoryId),
-      orderBy: (t, { desc: d }) => [d(t.createdAt)],
-      limit: 100,
-    });
+    return this.inventoryRepository.getTransactions(inventoryId);
   }
 
   async reserveStock(variantId: string, warehouseId: string, quantity: number): Promise<void> {
-    const inv = await this.db.query.inventory.findFirst({
-      where: and(eq(schema.inventory.variantId, variantId), eq(schema.inventory.warehouseId, warehouseId)),
-    });
+    const inv = await this.inventoryRepository.findInventoryByVariantAndWarehouse(variantId, warehouseId);
 
     const available = inv ? inv.quantityOnHand - inv.quantityReserved : 0;
 
@@ -174,27 +105,19 @@ export class InventoryService {
       });
     }
 
-    await this.db.update(schema.inventory)
-      .set({ quantityReserved: sql`quantity_reserved + ${quantity}` })
-      .where(eq(schema.inventory.id, inv!.id));
+    await this.inventoryRepository.incrementReserved(inv!.id, quantity);
   }
 
   async deductStock(variantId: string, warehouseId: string | null, quantity: number, orderId: string): Promise<void> {
-    const whereClause = warehouseId
-      ? and(eq(schema.inventory.variantId, variantId), eq(schema.inventory.warehouseId, warehouseId))
-      : eq(schema.inventory.variantId, variantId);
-
-    const inv = await this.db.query.inventory.findFirst({ where: whereClause });
+    const inv = await this.inventoryRepository.findInventoryByVariantAndWarehouseOptional(variantId, warehouseId);
     if (!inv) return;
 
     const newOnHand = Math.max(0, inv.quantityOnHand - quantity);
     const newReserved = Math.max(0, inv.quantityReserved - quantity);
 
-    await this.db.update(schema.inventory)
-      .set({ quantityOnHand: newOnHand, quantityReserved: newReserved })
-      .where(eq(schema.inventory.id, inv.id));
+    await this.inventoryRepository.updateOnHandAndReserved(inv.id, newOnHand, newReserved);
 
-    await this.db.insert(schema.inventoryTransactions).values({
+    await this.inventoryRepository.insertTransaction({
       inventoryId: inv.id,
       type: 'sale',
       quantityDelta: -quantity,
@@ -205,9 +128,7 @@ export class InventoryService {
   }
 
   async checkAvailability(variantId: string, quantity: number): Promise<boolean> {
-    const inv = await this.db.query.inventory.findFirst({
-      where: eq(schema.inventory.variantId, variantId),
-    });
+    const inv = await this.inventoryRepository.findInventoryByVariant(variantId);
     if (!inv) return false;
     return (inv.quantityOnHand - inv.quantityReserved) >= quantity;
   }
