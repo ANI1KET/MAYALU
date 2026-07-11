@@ -1,5 +1,5 @@
 import {
-  Controller, Get, Post, Param, Body, Query, UseGuards, Module,
+  Controller, Get, Post, Param, Body, Query, Module,
 } from '@nestjs/common';
 import {
   ApiTags, ApiOperation, ApiCookieAuth, ApiBody, ApiParam, ApiQuery,
@@ -10,7 +10,6 @@ import {
 } from '../../common/swagger/response.dto';
 import { IsString, IsNumber, IsEnum, IsOptional } from 'class-validator';
 import { InventoryService } from './inventory.service';
-import { AuthGuard } from '../../common/guards/auth.guard';
 import { JwtService } from '../../common/services/jwt.service';
 import { ApiOkEnvelope, ApiCreatedEnvelope, ApiOkEnvelopeSchema, ApiStandardErrors } from '../../common/decorators/api-responses.decorator';
 
@@ -42,7 +41,6 @@ class AdjustStockBodyDto {
 }
 
 @ApiTags('Inventory')
-@UseGuards(AuthGuard)
 @ApiCookieAuth('access_token')
 @Controller('inventory')
 export class InventoryController {

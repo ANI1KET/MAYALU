@@ -6,7 +6,6 @@ import {
   Req,
   Res,
   HttpCode,
-  UseGuards,
   Logger,
   UnauthorizedException,
 } from '@nestjs/common';
@@ -15,7 +14,6 @@ import type { Request, Response } from 'express';
 import { Throttle } from '@nestjs/throttler';
 import { AuthService } from './auth.service';
 import { TokenService } from '../../common/services/token.service';
-import { AuthGuard } from '../../common/guards/auth.guard';
 import { CurrentUser, Public } from '../../common/decorators/index';
 import { SendOtpDto, VerifyOtpDto, RegisterDto } from './dto/auth.dto';
 import { getConfig } from '../../config/app.config';
@@ -152,7 +150,6 @@ export class AuthController {
     return { message: 'Session refreshed successfully.' };
   }
 
-  @UseGuards(AuthGuard)
   @Post('logout')
   @HttpCode(200)
   @ApiCookieAuth('access_token')
@@ -171,7 +168,6 @@ export class AuthController {
     return { message: 'Logged out successfully.' };
   }
 
-  @UseGuards(AuthGuard)
   @Get('me')
   @ApiCookieAuth('access_token')
   @ApiOperation({ summary: 'Get current user', description: 'Return the authenticated user profile.' })

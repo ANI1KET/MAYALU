@@ -1,6 +1,6 @@
 import {
   Injectable, Inject, NotFoundException, Module, Controller,
-  Get, Post, Delete, Param, UseGuards,
+  Get, Post, Delete, Param,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiCookieAuth, ApiParam } from '@nestjs/swagger';
 import { WishlistResponseDto } from '../../common/swagger/response.dto';
@@ -8,7 +8,6 @@ import { eq, and } from 'drizzle-orm';
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
 import * as schema from '../../database/schema/index';
 import { DATABASE_TOKEN } from '../../database/database.module';
-import { AuthGuard } from '../../common/guards/auth.guard';
 import { CurrentUser } from '../../common/decorators/index';
 import { JwtService } from '../../common/services/jwt.service';
 import { ApiOkEnvelope, ApiOkEnvelopeSchema, ApiCreatedEnvelopeSchema, ApiStandardErrors } from '../../common/decorators/api-responses.decorator';
@@ -74,7 +73,6 @@ export class WishlistService {
 }
 
 @ApiTags('Wishlist')
-@UseGuards(AuthGuard)
 @ApiCookieAuth('access_token')
 @Controller('wishlist')
 export class WishlistController {

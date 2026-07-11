@@ -1,5 +1,5 @@
 import {
-  Injectable, Inject, Controller, Get, UseGuards, Module, Logger,
+  Injectable, Inject, Controller, Get, Module, Logger,
 } from '@nestjs/common';
 import {
   ApiTags, ApiOperation, ApiCookieAuth,
@@ -9,7 +9,6 @@ import { eq, and, isNull, sql } from 'drizzle-orm';
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
 import * as schema from '../../database/schema/index';
 import { DATABASE_TOKEN } from '../../database/database.module';
-import { AuthGuard } from '../../common/guards/auth.guard';
 import { CurrentUser } from '../../common/decorators/index';
 import { JwtService } from '../../common/services/jwt.service';
 import { getConfig } from '../../config/app.config';
@@ -226,7 +225,6 @@ export class NavigationService {
 // ── Controller ───────────────────────────────────────────────────────────────
 
 @ApiTags('Navigation')
-@UseGuards(AuthGuard)
 @ApiCookieAuth('access_token')
 @Controller('navigation')
 export class NavigationController {

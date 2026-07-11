@@ -1,5 +1,5 @@
 import {
-  Controller, Get, Post, Param, Body, Query, UseGuards, Module,
+  Controller, Get, Post, Param, Body, Query, Module,
 } from '@nestjs/common';
 import {
   ApiTags, ApiOperation, ApiCookieAuth, ApiBody, ApiParam, ApiQuery,
@@ -8,7 +8,6 @@ import {
   PlaceOrderResponseDto, OrderListResponseDto, OrderDto,
 } from '../../common/swagger/response.dto';
 import { OrdersService } from './orders.service';
-import { AuthGuard } from '../../common/guards/auth.guard';
 import { CurrentUser } from '../../common/decorators/index';
 import { SmsService } from '../../common/services/sms.service';
 import { JwtService } from '../../common/services/jwt.service';
@@ -16,7 +15,6 @@ import { PlaceOrderDto, OrderFilterDto } from './dto/order.dto';
 import { ApiOkEnvelope, ApiCreatedEnvelope, ApiStandardErrors } from '../../common/decorators/api-responses.decorator';
 
 @ApiTags('Orders')
-@UseGuards(AuthGuard)
 @ApiCookieAuth('access_token')
 @Controller('orders')
 export class OrdersController {

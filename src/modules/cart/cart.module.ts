@@ -1,5 +1,5 @@
 import {
-  Controller, Get, Post, Patch, Delete, Param, Body, UseGuards, Module,
+  Controller, Get, Post, Patch, Delete, Param, Body, Module,
 } from '@nestjs/common';
 import {
   ApiTags, ApiOperation, ApiCookieAuth, ApiBody, ApiParam,
@@ -10,7 +10,6 @@ import {
 } from '../../common/swagger/response.dto';
 import { IsNumber, IsString, Min, Max } from 'class-validator';
 import { CartService } from './cart.service';
-import { AuthGuard } from '../../common/guards/auth.guard';
 import { CurrentUser } from '../../common/decorators/index';
 import { JwtService } from '../../common/services/jwt.service';
 import { CART } from '../../common/constants/index';
@@ -30,7 +29,6 @@ class UpdateItemDto {
 }
 
 @ApiTags('Cart')
-@UseGuards(AuthGuard)
 @ApiCookieAuth('access_token')
 @Controller('cart')
 export class CartController {

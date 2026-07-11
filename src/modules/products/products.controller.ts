@@ -1,11 +1,10 @@
 import {
-  Controller, Get, Post, Patch, Delete, Param, Body, Query, UseGuards,
+  Controller, Get, Post, Patch, Delete, Param, Body, Query,
 } from '@nestjs/common';
 import {
   ApiTags, ApiOperation, ApiCookieAuth, ApiBody, ApiParam, ApiQuery,
 } from '@nestjs/swagger';
 import { ProductsService } from './products.service';
-import { AuthGuard } from '../../common/guards/auth.guard';
 import { CurrentUser, Public } from '../../common/decorators/index';
 import {
   CreateProductDto, UpdateProductDto, CreateVariantDto,
@@ -68,7 +67,6 @@ export class ProductsController {
 // ─── CMS (shop owner / staff) ──────────────────────────────────────────────
 
 @ApiTags('CMS - Products')
-@UseGuards(AuthGuard)
 @ApiCookieAuth('access_token')
 @Controller('cms/products')
 export class CmsProductsController {

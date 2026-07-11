@@ -1,5 +1,5 @@
 import {
-  Injectable, Inject, Module, Controller, Get, Patch, Param, UseGuards,
+  Injectable, Inject, Module, Controller, Get, Patch, Param,
 } from '@nestjs/common';
 import {
   ApiTags, ApiOperation, ApiCookieAuth, ApiParam,
@@ -9,7 +9,6 @@ import { eq, and } from 'drizzle-orm';
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
 import * as schema from '../../database/schema/index';
 import { DATABASE_TOKEN } from '../../database/database.module';
-import { AuthGuard } from '../../common/guards/auth.guard';
 import { CurrentUser } from '../../common/decorators/index';
 import { JwtService } from '../../common/services/jwt.service';
 import { NOTIFICATION } from '../../common/constants/index';
@@ -55,7 +54,6 @@ export class NotificationsService {
 }
 
 @ApiTags('Notifications')
-@UseGuards(AuthGuard)
 @ApiCookieAuth('access_token')
 @Controller('notifications')
 export class NotificationsController {

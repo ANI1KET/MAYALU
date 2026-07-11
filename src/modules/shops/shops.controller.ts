@@ -1,8 +1,7 @@
-import { Controller, Get, Post, Patch, Param, Body, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Param, Body } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiCookieAuth, ApiBody, ApiParam } from '@nestjs/swagger';
 import { ShopsService } from './shops.service';
 import { CreateShopDto, UpdateShopDto } from './dto/shop.dto';
-import { AuthGuard } from '../../common/guards/auth.guard';
 import { CurrentUser, Public } from '../../common/decorators/index';
 import { ShopDto, ShopSubscriptionDto, ShopUsageDto, ShopMemberDto } from '../../common/swagger/response.dto';
 import { ApiOkEnvelope, ApiCreatedEnvelope, ApiStandardErrors } from '../../common/decorators/api-responses.decorator';
@@ -12,7 +11,6 @@ import { ApiOkEnvelope, ApiCreatedEnvelope, ApiStandardErrors } from '../../comm
 export class ShopsController {
   constructor(private readonly shopsService: ShopsService) {}
 
-  @UseGuards(AuthGuard)
   @Post()
   @ApiCookieAuth('access_token')
   @ApiBody({ type: CreateShopDto })
@@ -39,7 +37,6 @@ export class ShopsController {
     return this.shopsService.findBySlug(slug);
   }
 
-  @UseGuards(AuthGuard)
   @Patch(':id')
   @ApiCookieAuth('access_token')
   @ApiBody({ type: UpdateShopDto })
@@ -51,7 +48,6 @@ export class ShopsController {
     return this.shopsService.update(id, dto);
   }
 
-  @UseGuards(AuthGuard)
   @Get(':id/subscription')
   @ApiCookieAuth('access_token')
   @ApiOperation({ summary: 'Get shop current subscription & plan limits' })
@@ -62,7 +58,6 @@ export class ShopsController {
     return this.shopsService.getSubscription(id);
   }
 
-  @UseGuards(AuthGuard)
   @Get(':id/usage')
   @ApiCookieAuth('access_token')
   @ApiOperation({ summary: 'Get shop resource usage (products, variants, storage)' })
@@ -73,7 +68,6 @@ export class ShopsController {
     return this.shopsService.getUsage(id);
   }
 
-  @UseGuards(AuthGuard)
   @Get(':id/members')
   @ApiCookieAuth('access_token')
   @ApiOperation({ summary: 'List shop team members' })

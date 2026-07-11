@@ -1,6 +1,6 @@
 import {
   Injectable, Inject, BadRequestException, Module,
-  Controller, Post, Body, UseGuards,
+  Controller, Post, Body,
 } from '@nestjs/common';
 import {
   ApiTags, ApiOperation, ApiCookieAuth, ApiBody,
@@ -11,7 +11,6 @@ import { eq, and } from 'drizzle-orm';
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
 import * as schema from '../../database/schema/index';
 import { DATABASE_TOKEN } from '../../database/database.module';
-import { AuthGuard } from '../../common/guards/auth.guard';
 import { CurrentUser } from '../../common/decorators/index';
 import { JwtService } from '../../common/services/jwt.service';
 import { ApiOkEnvelope, ApiStandardErrors } from '../../common/decorators/api-responses.decorator';
@@ -90,7 +89,6 @@ export class CouponsService {
 }
 
 @ApiTags('Coupons')
-@UseGuards(AuthGuard)
 @ApiCookieAuth('access_token')
 @Controller('coupons')
 export class CouponsController {
