@@ -1,26 +1,19 @@
 import {
-  Injectable, Inject, BadRequestException,
+  Injectable, BadRequestException,
   ConflictException, ForbiddenException, NotFoundException,
 } from '@nestjs/common';
-import { eq } from 'drizzle-orm';
-import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
-import * as schema from '../../database/schema/index';
-import { DATABASE_TOKEN } from '../../database/database.module';
+import { ShopsRepository } from './shops.repository';
 import { CreateShopDto, UpdateShopDto } from './dto/shop.dto';
 import { slugify } from '../../common/utils/slug.util';
 import { DEFAULT_PLAN_SLUG } from '../../common/constants/index';
 
 @Injectable()
 export class ShopsService {
-  constructor(
-    @Inject(DATABASE_TOKEN) private readonly db: NodePgDatabase<typeof schema>,
-  ) {}
+  constructor(private readonly shopsRepository: ShopsRepository) {}
 
   async create(userId: string, dto: CreateShopDto) {
     // Phone must be verified
-    const user = await this.db.query.users.findFirst({
-      where: eq(schema.users.id, userId),
-    });
+    const user = await this.shopsRepository.findUserById(userId);
 
     if (!user?.isPhoneVerified) {
       throw new ForbiddenException({
@@ -30,9 +23,7 @@ export class ShopsService {
     }
 
     // One shop per user
-    const existing = await this.db.query.shops.findFirst({
-      where: eq(schema.shops.ownerUserId, userId),
-    });
+    const existing = await this.shopsRepository.findShopByOwnerUserId(userId);
 
     if (existing) {
       throw new ConflictException({
@@ -45,9 +36,7 @@ export class ShopsService {
     const slug = dto.slug ?? slugify(dto.name);
 
     // Slug must be unique
-    const slugTaken = await this.db.query.shops.findFirst({
-      where: eq(schema.shops.slug, slug),
-    });
+    const slugTaken = await this.shopsRepository.findShopBySlug(slug);
 
     if (slugTaken) {
       throw new ConflictException({
@@ -57,9 +46,7 @@ export class ShopsService {
     }
 
     // Resolve plan (always starter for new shops)
-    const plan = await this.db.query.plans.findFirst({
-      where: eq(schema.plans.slug, DEFAULT_PLAN_SLUG),
-    });
+    const plan = await this.shopsRepository.findPlanBySlug(DEFAULT_PLAN_SLUG);
 
     if (!plan) {
       throw new NotFoundException({
@@ -72,74 +59,17 @@ export class ShopsService {
     const periodEnd = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1_000);
 
     // Atomic: shop + subscription + member + usage
-    const result = await this.db.transaction(async (tx) => {
-      const [shop] = await tx.insert(schema.shops).values({
-        ownerUserId: userId,
-        name: dto.name,
-        slug,
-        description: dto.description ?? null,
-        businessAddress: dto.businessAddress ?? null,
-        businessPhone: dto.businessPhone ?? null,
-        panNumber: dto.panNumber ?? null,
-        status: 'pending',
-        verificationStatus: 'unverified',
-      }).returning();
-
-      if (!shop) throw new BadRequestException('Failed to create shop');
-
-      const planSnapshot = {
-        maxProducts: plan.maxProducts,
-        maxVariantsPerProduct: plan.maxVariantsPerProduct,
-        maxImagesPerProduct: plan.maxImagesPerProduct,
-        maxWarehouses: plan.maxWarehouses,
-        maxStaffMembers: plan.maxStaffMembers,
-        storageGb: plan.storageGb,
-        canUseCod: plan.canUseCod,
-        canUseEsewa: plan.canUseEsewa,
-        canUseDiscounts: plan.canUseDiscounts,
-        canUseAnalytics: plan.canUseAnalytics,
-        commissionRate: plan.commissionRate,
-      };
-
-      await tx.insert(schema.shopSubscriptions).values({
-        shopId: shop.id,
-        planId: plan.id,
-        status: 'trialing',
-        currentPeriodStart: now,
-        currentPeriodEnd: periodEnd,
-        planFeaturesSnapshot: planSnapshot,
-      });
-
-      await tx.insert(schema.shopMembers).values({
-        shopId: shop.id,
-        userId,
-        role: 'owner',
-        acceptedAt: now,
-      });
-
-      await tx.insert(schema.shopResourceUsage).values({
-        shopId: shop.id,
-        totalProducts: 0,
-        totalActiveProducts: 0,
-        totalVariants: 0,
-        totalStaffMembers: 1,
-        storageMbUsed: '0',
-      });
-
-      return shop;
+    const result = await this.shopsRepository.createShopWithSubscription({
+      userId, dto, slug, plan, now, periodEnd,
     });
+
+    if (!result) throw new BadRequestException('Failed to create shop');
 
     return result;
   }
 
   async findBySlug(slug: string) {
-    const shop = await this.db.query.shops.findFirst({
-      where: eq(schema.shops.slug, slug),
-      with: {
-        owner: { columns: { phone: true, fullName: true, avatarUrl: true } },
-        resourceUsage: true,
-      } as never,
-    });
+    const shop = await this.shopsRepository.findShopBySlugWithRelations(slug);
 
     if (!shop) {
       throw new NotFoundException({ code: 'SHOP_NOT_FOUND', message: `Shop "${slug}" not found` });
@@ -149,9 +79,7 @@ export class ShopsService {
   }
 
   async findById(id: string) {
-    const shop = await this.db.query.shops.findFirst({
-      where: eq(schema.shops.id, id),
-    });
+    const shop = await this.shopsRepository.findShopById(id);
 
     if (!shop) {
       throw new NotFoundException({ code: 'SHOP_NOT_FOUND', message: 'Shop not found' });
@@ -161,18 +89,11 @@ export class ShopsService {
   }
 
   async findByOwner(userId: string) {
-    return this.db.query.shops.findFirst({
-      where: eq(schema.shops.ownerUserId, userId),
-      with: { subscription: true, resourceUsage: true } as never,
-    });
+    return this.shopsRepository.findShopByOwnerUserIdWithRelations(userId);
   }
 
   async update(shopId: string, dto: UpdateShopDto) {
-    const [updated] = await this.db
-      .update(schema.shops)
-      .set({ ...dto, updatedAt: new Date() })
-      .where(eq(schema.shops.id, shopId))
-      .returning();
+    const updated = await this.shopsRepository.updateShop(shopId, dto);
 
     if (!updated) {
       throw new NotFoundException({ code: 'SHOP_NOT_FOUND', message: 'Shop not found' });
@@ -181,9 +102,7 @@ export class ShopsService {
   }
 
   async getSubscription(shopId: string) {
-    const sub = await this.db.query.shopSubscriptions.findFirst({
-      where: eq(schema.shopSubscriptions.shopId, shopId),
-    });
+    const sub = await this.shopsRepository.findSubscriptionByShopId(shopId);
 
     if (!sub) {
       throw new NotFoundException({ code: 'SUBSCRIPTION_NOT_FOUND', message: 'No subscription found' });
@@ -192,9 +111,7 @@ export class ShopsService {
   }
 
   async getUsage(shopId: string) {
-    const usage = await this.db.query.shopResourceUsage.findFirst({
-      where: eq(schema.shopResourceUsage.shopId, shopId),
-    });
+    const usage = await this.shopsRepository.findUsageByShopId(shopId);
 
     if (!usage) {
       throw new NotFoundException({ code: 'USAGE_NOT_FOUND', message: 'Resource usage not found' });
@@ -203,16 +120,11 @@ export class ShopsService {
   }
 
   async getMembers(shopId: string) {
-    return this.db.query.shopMembers.findMany({
-      where: eq(schema.shopMembers.shopId, shopId),
-      with: { user: { columns: { phone: true, fullName: true, avatarUrl: true } } } as never,
-    });
+    return this.shopsRepository.findMembersByShopId(shopId);
   }
 
   async getActivePlanLimits(shopId: string) {
-    const sub = await this.db.query.shopSubscriptions.findFirst({
-      where: eq(schema.shopSubscriptions.shopId, shopId),
-    });
+    const sub = await this.shopsRepository.findSubscriptionByShopId(shopId);
 
     if (!sub) return null;
 
