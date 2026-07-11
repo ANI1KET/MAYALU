@@ -1,5 +1,13 @@
 # Mayalu Wears — Postman Testing Guide
 
+> **This `api-tests` folder is the primary/main test suite for this API** — it's
+> the source of truth for expected request/response shapes across every
+> endpoint. The Jest suites under `src/**/__tests__` cover unit-level service
+> logic, but this collection is what documents and exercises full endpoint
+> behavior. **Whenever an endpoint's request/response contract changes,
+> update `generate-postman.js` and re-run it (see "Regenerating the
+> collection" below) in the same change — don't let this drift out of sync.**
+
 This folder contains three files that together give you a complete,
 ready-to-run Postman test suite for every endpoint in the Mayalu Wears API.
 
@@ -10,7 +18,7 @@ ready-to-run Postman test suite for every endpoint in the Mayalu Wears API.
 | File | Purpose |
 |---|---|
 | `generate-postman.js` | **Single source of truth.** Plain Node script (zero dependencies). All 72 endpoints, every example request/response, and all collection variables are defined here. Re-run it any time an endpoint changes. |
-| `mayalu-wears.postman_collection.json` | **Import this into Postman.** Pre-built output from `generate-postman.js` — 17 folders, 72 requests, 257 saved examples. |
+| `mayalu-wears.postman_collection.json` | **Import this into Postman.** Pre-built output from `generate-postman.js` — 17 folders, 72 requests, 259 saved examples. |
 | `mayalu-wears.postman_environment.json` | **Import this as the environment.** Sets `baseUrl`, `adminKey`, and `testPhone`. |
 
 ---
@@ -198,7 +206,7 @@ If you add a new endpoint to the NestJS backend, add its definition to
 `generate-postman.js` and re-run:
 
 ```bash
-node api-tests/postman/generate-postman.js
+node api-tests/generate-postman.js
 ```
 
 This regenerates both JSON files. Re-import into Postman (it merges automatically
@@ -213,7 +221,7 @@ and `crypto`.
 
 | Module | Requests | Examples |
 |---|---|---|
-| Auth | 6 | 20 |
+| Auth | 6 | 22 |
 | Shops | 6 | 20 |
 | Categories | 4 | 7 |
 | Attributes | 3 | 6 |
@@ -230,7 +238,7 @@ and `crypto`.
 | Users | 4 | 12 |
 | Navigation | 1 | 3 |
 | Admin | 11 | 27 |
-| **Total** | **72** | **257** |
+| **Total** | **72** | **259** |
 
 Example types per endpoint: success (1–3 variants), validation errors,
 401 unauthorized, 403 forbidden, 404 not found, 409 conflict, and

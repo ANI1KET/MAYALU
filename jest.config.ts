@@ -19,7 +19,7 @@ const config: Config = {
   ],
   coverageDirectory: '../coverage',
   testEnvironment: 'node',
-  coverageThresholds: {
+  coverageThreshold: {
     global: { lines: 70, functions: 70, branches: 60 },
   },
 };

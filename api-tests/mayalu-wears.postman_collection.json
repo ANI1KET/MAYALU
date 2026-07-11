@@ -1,6 +1,6 @@
 {
   "info": {
-    "_postman_id": "e8335ffb-d33f-419b-9f2c-e4319ed020c8",
+    "_postman_id": "dcb10f04-0bab-4f55-8353-9bf5fca236c8",
     "name": "Mayalu Wears API",
     "description": "Nepal-focused multi-vendor fashion marketplace — 72 endpoints, 17 modules, 258 example responses. Auth uses HttpOnly cookies: run Auth > Verify OTP & Login first; cookie jar handles the rest automatically. Every request has multiple saved Examples showing success, validation errors, 401/403/404/409 and business-logic edge cases.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
@@ -212,7 +212,7 @@
                   "value": "application/json"
                 }
               ],
-              "body": "{\n  \"statusCode\": 400,\n  \"code\": \"VALIDATION_ERROR\",\n  \"message\": \"purpose must be one of: login, register, reset_phone\"\n}"
+              "body": "{\n  \"statusCode\": 400,\n  \"code\": \"VALIDATION_ERROR\",\n  \"message\": \"purpose must be one of: login, register\"\n}"
             },
             {
               "name": "❌ 400 Invalid purpose",
@@ -255,7 +255,7 @@
                   "value": "application/json"
                 }
               ],
-              "body": "{\n  \"statusCode\": 400,\n  \"code\": \"VALIDATION_ERROR\",\n  \"message\": \"purpose must be one of: login, register, reset_phone\"\n}"
+              "body": "{\n  \"statusCode\": 400,\n  \"code\": \"VALIDATION_ERROR\",\n  \"message\": \"purpose must be one of: login, register\"\n}"
             },
             {
               "name": "❌ 400 OTP cooldown active",
@@ -324,7 +324,7 @@
               ],
               "query": []
             },
-            "description": "Sets access_token & refresh_token as HttpOnly cookies — Postman's cookie jar captures and replays them automatically on every later request.",
+            "description": "purpose=login: verifies the OTP and logs the user in — sets access_token & refresh_token as HttpOnly cookies (Postman's cookie jar captures and replays them automatically on every later request). purpose=register: only confirms phone ownership — no cookies, no user created yet; call Register next with fullName/email to finish creating the account.",
             "body": {
               "mode": "raw",
               "raw": "{\n  \"phone\": \"{{testPhone}}\",\n  \"otp\": \"123456\",\n  \"purpose\": \"login\"\n}",
@@ -380,7 +380,7 @@
               "body": "{\n  \"isNewUser\": false,\n  \"user\": {\n    \"id\": \"550e8400-e29b-41d4-a716-446655440000\",\n    \"phone\": \"+9779800000001\",\n    \"email\": null,\n    \"fullName\": \"Sita Rai\",\n    \"avatarUrl\": null,\n    \"status\": \"active\",\n    \"isPhoneVerified\": true,\n    \"isEmailVerified\": false,\n    \"lastLoginAt\": \"2026-06-30T10:00:00.000Z\",\n    \"createdAt\": \"2026-01-01T00:00:00.000Z\",\n    \"updatedAt\": \"2026-06-30T10:00:00.000Z\"\n  }\n}"
             },
             {
-              "name": "✅ 200 Logged in (new user — isNewUser=true)",
+              "name": "✅ 200 Logged in (new user — isNewUser=true, purpose=login)",
               "originalRequest": {
                 "method": "POST",
                 "header": [
@@ -421,6 +421,49 @@
                 }
               ],
               "body": "{\n  \"isNewUser\": true,\n  \"user\": {\n    \"id\": \"550e8400-e29b-41d4-a716-446655440001\",\n    \"phone\": \"+9779800000002\",\n    \"email\": null,\n    \"fullName\": null,\n    \"avatarUrl\": null,\n    \"status\": \"active\",\n    \"isPhoneVerified\": true,\n    \"isEmailVerified\": false,\n    \"lastLoginAt\": null,\n    \"createdAt\": \"2026-06-30T10:00:00.000Z\",\n    \"updatedAt\": \"2026-06-30T10:00:00.000Z\"\n  }\n}"
+            },
+            {
+              "name": "✅ 200 Phone verified (purpose=register — no cookies/user yet, call Register next)",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/auth/otp/verify",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "auth",
+                    "otp",
+                    "verify"
+                  ],
+                  "query": []
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"phone\": \"{{testPhone}}\",\n  \"otp\": \"123456\",\n  \"purpose\": \"register\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"message\": \"Phone verified. Complete registration to create your account.\"\n}"
             },
             {
               "name": "❌ 401 Wrong OTP code",
@@ -552,6 +595,49 @@
               "body": "{\n  \"statusCode\": 403,\n  \"code\": \"ACCOUNT_SUSPENDED\",\n  \"message\": \"Your account has been suspended. Contact support.\"\n}"
             },
             {
+              "name": "❌ 409 Phone already registered (purpose=register)",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/auth/otp/verify",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "auth",
+                    "otp",
+                    "verify"
+                  ],
+                  "query": []
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"phone\": \"{{testPhone}}\",\n  \"otp\": \"123456\",\n  \"purpose\": \"register\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "status": "OK",
+              "code": 409,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"statusCode\": 409,\n  \"code\": \"PHONE_TAKEN\",\n  \"message\": \"An account with this phone number already exists.\"\n}"
+            },
+            {
               "name": "❌ 400 OTP non-numeric",
               "originalRequest": {
                 "method": "POST",
@@ -678,7 +764,7 @@
                   "value": "application/json"
                 }
               ],
-              "body": "{\n  \"statusCode\": 400,\n  \"code\": \"VALIDATION_ERROR\",\n  \"message\": \"phone should not be empty, otp should not be empty, purpose must be one of: login, register, reset_phone\"\n}"
+              "body": "{\n  \"statusCode\": 400,\n  \"code\": \"VALIDATION_ERROR\",\n  \"message\": \"phone should not be empty, otp should not be empty, purpose must be one of: login, register\"\n}"
             }
           ],
           "event": [

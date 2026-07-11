@@ -49,7 +49,7 @@ export const tsvectorType = customType<{ data: string }>({
 // ─── Enums ───────────────────────────────────────────────────────
 
 export const userStatusEnum = pgEnum('user_status', ['active', 'suspended', 'pending', 'deleted']);
-export const otpPurposeEnum = pgEnum('otp_purpose', ['login', 'register', 'reset_phone']);
+export const otpPurposeEnum = pgEnum('otp_purpose', ['login', 'register']);
 export const billingCycleEnum = pgEnum('billing_cycle', ['monthly', 'yearly', 'lifetime']);
 export const planStatusEnum = pgEnum('plan_status', ['active', 'deprecated', 'hidden']);
 export const shopStatusEnum = pgEnum('shop_status', ['pending', 'active', 'suspended', 'closed']);

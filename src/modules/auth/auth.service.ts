@@ -7,9 +7,7 @@ import { DATABASE_TOKEN } from '../../database/database.module';
 import { JwtService } from '../../common/services/jwt.service';
 import { TokenService, type IssuePairMeta } from '../../common/services/token.service';
 import { SmsService } from '../../common/services/sms.service';
-import { CartService } from '../cart/cart.service';
 import { hashOtp, verifyOtp, generateOtp, sha256 } from '../../common/utils/hash.util';
-import { normalizeNepalPhone } from '../../common/utils/phone.util';
 import { getConfig } from '../../config/app.config';
 
 @Injectable()
@@ -21,15 +19,13 @@ export class AuthService {
     private readonly jwtService: JwtService,
     private readonly tokenService: TokenService,
     private readonly smsService: SmsService,
-    private readonly cartService: CartService,
   ) {}
 
   async sendOtp(
     phone: string,
-    purpose: 'login' | 'register' | 'reset_phone',
+    purpose: 'login' | 'register',
     ipAddress?: string,
   ): Promise<{ message: string }> {
-    const normalizedPhone = normalizeNepalPhone(phone);
     const config = getConfig();
     const cooldownSeconds = config.OTP_RESEND_COOLDOWN_SECONDS;
     const cooldownBoundary = new Date(Date.now() - cooldownSeconds * 1000);
@@ -61,7 +57,7 @@ export class AuthService {
     const expiresAt = new Date(Date.now() + config.OTP_EXPIRY_MINUTES * 60 * 1000);
 
     await this.db.insert(schema.otpTokens).values({
-      phone: normalizedPhone,
+      phone,
       codeHash,
       purpose,
       attempts: 0,
@@ -78,15 +74,17 @@ export class AuthService {
   async verifyOtpAndLogin(
     phone: string,
     otp: string,
-    purpose: 'login' | 'register' | 'reset_phone',
+    purpose: 'login' | 'register',
     meta: IssuePairMeta,
-  ): Promise<{ accessToken: string; rawRefreshToken: string; isNewUser: boolean; user: typeof schema.users.$inferSelect }> {
-    const normalizedPhone = normalizeNepalPhone(phone);
+  ): Promise<
+    | { purpose: 'login'; accessToken: string; rawRefreshToken: string; isNewUser: boolean; user: typeof schema.users.$inferSelect }
+    | { purpose: 'register' }
+  > {
     const config = getConfig();
 
     const record = await this.db.query.otpTokens.findFirst({
       where: and(
-        eq(schema.otpTokens.phone, normalizedPhone),
+        eq(schema.otpTokens.phone, phone),
         eq(schema.otpTokens.purpose, purpose),
         gt(schema.otpTokens.expiresAt, new Date()),
         isNull(schema.otpTokens.usedAt),
@@ -132,16 +130,31 @@ export class AuthService {
       .set({ usedAt: new Date() })
       .where(eq(schema.otpTokens.id, record.id));
 
+    if (purpose === 'register') {
+      // Registration is completed via POST /auth/register (name/email required).
+      // Only confirm phone ownership here — do not create the user or a session yet.
+      const existing = await this.db.query.users.findFirst({
+        where: eq(schema.users.phone, phone),
+      });
+      if (existing) {
+        throw new ConflictException({
+          code: 'PHONE_TAKEN',
+          message: 'An account with this phone number already exists.',
+        });
+      }
+      return { purpose: 'register' };
+    }
+
     // Upsert user
     let user = await this.db.query.users.findFirst({
-      where: eq(schema.users.phone, normalizedPhone),
+      where: eq(schema.users.phone, phone),
     });
 
     const isNewUser = !user;
 
     if (!user) {
       const [created] = await this.db.insert(schema.users).values({
-        phone: normalizedPhone,
+        phone,
         isPhoneVerified: true,
         status: 'active',
       }).returning();
@@ -167,19 +180,7 @@ export class AuthService {
     }
 
     const tokenPair = await this.tokenService.issuePair(user.id, user.phone, meta);
-    return { ...tokenPair, isNewUser, user };
-  }
-
-  /**
-   * Merge a guest cart (sessionId) into the now-authenticated user cart.
-   * Called from the controller after successful login — non-blocking.
-   */
-  async mergeGuestCartIfPresent(userId: string, sessionId?: string): Promise<void> {
-    if (!sessionId) return;
-    await this.cartService.mergeGuestCart(sessionId, userId).catch((err: unknown) => {
-      const msg = err instanceof Error ? err.message : 'unknown';
-      this.logger.warn(`Guest cart merge failed for user ${userId}: ${msg}`);
-    });
+    return { purpose: 'login', ...tokenPair, isNewUser, user };
   }
 
   async register(
@@ -188,10 +189,8 @@ export class AuthService {
     email: string | undefined,
     meta: IssuePairMeta,
   ): Promise<{ accessToken: string; rawRefreshToken: string; user: typeof schema.users.$inferSelect }> {
-    const normalizedPhone = normalizeNepalPhone(phone);
-
     const existing = await this.db.query.users.findFirst({
-      where: eq(schema.users.phone, normalizedPhone),
+      where: eq(schema.users.phone, phone),
     });
 
     if (existing) {
@@ -204,7 +203,7 @@ export class AuthService {
     // Check OTP was verified
     const usedOtp = await this.db.query.otpTokens.findFirst({
       where: and(
-        eq(schema.otpTokens.phone, normalizedPhone),
+        eq(schema.otpTokens.phone, phone),
         eq(schema.otpTokens.purpose, 'register'),
       ),
       orderBy: desc(schema.otpTokens.createdAt),
@@ -218,7 +217,7 @@ export class AuthService {
     }
 
     const [user] = await this.db.insert(schema.users).values({
-      phone: normalizedPhone,
+      phone,
       fullName,
       email: email ?? null,
       isPhoneVerified: true,

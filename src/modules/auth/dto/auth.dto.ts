@@ -12,9 +12,9 @@ export class SendOtpDto {
   @Matches(NEPAL_PHONE_REGEX, { message: PHONE_MSG })
   phone!: string;
 
-  @ApiProperty({ enum: ['login', 'register', 'reset_phone'], example: 'login', description: 'Purpose determines OTP lifecycle' })
-  @IsEnum(['login', 'register', 'reset_phone'])
-  purpose!: 'login' | 'register' | 'reset_phone';
+  @ApiProperty({ enum: ['login', 'register'], example: 'login', description: 'Purpose determines OTP lifecycle' })
+  @IsEnum(['login', 'register'])
+  purpose!: 'login' | 'register';
 }
 
 export class VerifyOtpDto {
@@ -29,9 +29,9 @@ export class VerifyOtpDto {
   @Matches(/^\d{6}$/, { message: 'OTP must be exactly 6 digits' })
   otp!: string;
 
-  @ApiProperty({ enum: ['login', 'register', 'reset_phone'], example: 'login' })
-  @IsEnum(['login', 'register', 'reset_phone'])
-  purpose!: 'login' | 'register' | 'reset_phone';
+  @ApiProperty({ enum: ['login', 'register'], example: 'login' })
+  @IsEnum(['login', 'register'])
+  purpose!: 'login' | 'register';
 }
 
 export class RegisterDto {

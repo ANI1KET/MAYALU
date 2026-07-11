@@ -1,6 +1,11 @@
 import { AuthService } from '../auth.service';
 import { BadRequestException, UnauthorizedException, ConflictException, ForbiddenException } from '@nestjs/common';
 
+jest.mock('../../../common/utils/hash.util', () => ({
+  ...jest.requireActual('../../../common/utils/hash.util'),
+  verifyOtp: jest.fn().mockResolvedValue(true),
+}));
+
 process.env['JWT_SECRET'] = 'test-secret-that-is-definitely-32-chars-long!!';
 process.env['JWT_ACCESS_EXPIRY'] = '15m';
 process.env['JWT_REFRESH_EXPIRE_DAYS'] = '30';
@@ -116,10 +121,40 @@ describe('AuthService', () => {
       });
       db.query.users.findFirst.mockResolvedValue(null);
 
-      // We trust the flow; just verify insert is called (new user)
       const svc = makeService(db);
-      // Skip actual argon2 verify in unit tests; the flow is tested end-to-end
-      expect(db.query.users.findFirst).toBeDefined();
+      const result = await svc.verifyOtpAndLogin('+9779841234567', '123456', 'login', {});
+
+      expect(result).toMatchObject({ purpose: 'login', isNewUser: true });
+    });
+
+    it('purpose=register does not create a user or issue tokens', async () => {
+      const db = makeDb();
+      db.query.otpTokens.findFirst.mockResolvedValue({
+        id: 'otp1', attempts: 0, codeHash: 'placeholder',
+        expiresAt: new Date(Date.now() + 300000), usedAt: null,
+      });
+      db.query.users.findFirst.mockResolvedValue(null);
+
+      const svc = makeService(db);
+      const result = await svc.verifyOtpAndLogin('+9779841234567', '123456', 'register', {});
+
+      expect(result).toEqual({ purpose: 'register' });
+      expect(db.insert).not.toHaveBeenCalled();
+      expect(mockTokenService.issuePair).not.toHaveBeenCalled();
+    });
+
+    it('purpose=register throws PHONE_TAKEN when phone is already a registered user', async () => {
+      const db = makeDb();
+      db.query.otpTokens.findFirst.mockResolvedValue({
+        id: 'otp1', attempts: 0, codeHash: 'placeholder',
+        expiresAt: new Date(Date.now() + 300000), usedAt: null,
+      });
+      db.query.users.findFirst.mockResolvedValue(mockUser);
+
+      const svc = makeService(db);
+      await expect(svc.verifyOtpAndLogin('+9779841234567', '123456', 'register', {})).rejects.toMatchObject({
+        response: expect.objectContaining({ code: 'PHONE_TAKEN' }),
+      });
     });
   });
 

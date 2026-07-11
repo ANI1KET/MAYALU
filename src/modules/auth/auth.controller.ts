@@ -10,7 +10,7 @@ import {
   Logger,
   UnauthorizedException,
 } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiCookieAuth, ApiHeader, ApiBody } from '@nestjs/swagger';
+import { ApiTags, ApiOperation, ApiCookieAuth, ApiBody } from '@nestjs/swagger';
 import type { Request, Response } from 'express';
 import { Throttle } from '@nestjs/throttler';
 import { AuthService } from './auth.service';
@@ -76,12 +76,12 @@ export class AuthController {
   @ApiOperation({
     summary: 'Verify OTP & Login',
     description:
-      'Verify the 6-digit OTP and receive JWT cookies. ' +
-      'Pass `X-Session-Id` header to auto-merge a guest cart on login. ' +
-      'Sets `access_token` (15 min) and `refresh_token` (30 days) as HttpOnly cookies.',
+      'Verify the 6-digit OTP. For `purpose: login`, logs the user in and sets ' +
+      '`access_token` (15 min) and `refresh_token` (30 days) as HttpOnly cookies. ' +
+      'For `purpose: register`, only confirms phone ownership (no cookies, no user yet) — ' +
+      'call POST /auth/register next to complete the account.',
   })
-  @ApiHeader({ name: 'X-Session-Id', description: 'Guest cart session ID for merge on login', required: false })
-  @ApiOkEnvelope(LoginResponseDto, 'Login successful — JWT cookies set')
+  @ApiOkEnvelope(LoginResponseDto, 'Login successful — JWT cookies set (purpose: login), or phone verified (purpose: register)')
   @ApiBadRequest()
   @ApiUnauthorized('INVALID_OTP — wrong code | OTP_MAX_ATTEMPTS — locked')
   @ApiForbidden('ACCOUNT_SUSPENDED')
@@ -95,9 +95,10 @@ export class AuthController {
     const config = getConfig();
     const meta = { ip: req.ip, userAgent: req.headers['user-agent'] };
     const result = await this.authService.verifyOtpAndLogin(dto.phone, dto.otp, dto.purpose, meta);
+    if (result.purpose === 'register') {
+      return { message: 'Phone verified. Complete registration to create your account.' };
+    }
     this.tokenService.setTokenCookies(res, result.accessToken, result.rawRefreshToken, config.NODE_ENV === 'production');
-    const sessionId = (req.headers as Record<string, string>)['x-session-id'] ?? (req.query as Record<string, string>)['sessionId'];
-    void this.authService.mergeGuestCartIfPresent(result.user.id, sessionId);
     return { isNewUser: result.isNewUser, user: this.sanitizeUser(result.user) };
   }
 

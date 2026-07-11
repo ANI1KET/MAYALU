@@ -13,34 +13,6 @@ export class CartService {
     @Inject(DATABASE_TOKEN) private readonly db: NodePgDatabase<typeof schema>,
   ) {}
 
-  async mergeGuestCart(sessionId: string, userId: string): Promise<void> {
-    const guestCart = await this.db.query.carts.findFirst({
-      where: eq(schema.carts.sessionId, sessionId),
-      with: { items: true } as never,
-    });
-
-    if (!guestCart) return;
-
-    const guestCartTyped = guestCart as typeof guestCart & {
-      items: Array<{ variantId: string; quantity: number; priceSnapshot: string }>;
-    };
-
-    if (guestCartTyped.items.length === 0) {
-      await this.db.delete(schema.carts).where(eq(schema.carts.id, guestCart.id));
-      return;
-    }
-
-    // Merge items into user cart (creates user cart if not exists)
-    for (const item of guestCartTyped.items) {
-      await this.addItem(userId, item.variantId, item.quantity).catch(() => {
-        // Silently skip items that are no longer available
-      });
-    }
-
-    // Delete guest cart after merge
-    await this.db.delete(schema.carts).where(eq(schema.carts.id, guestCart.id));
-  }
-
   async getOrCreate(userId: string) {
     const existing = await this.db.query.carts.findFirst({
       where: eq(schema.carts.userId, userId),
