@@ -1,0 +1,108 @@
+# ─── Local Development Compose ─────────────────────────────────────────────────
+# Usage:
+#   docker compose -f docker.compose.local.yml up --build
+#   docker compose -f docker.compose.local.yml up --build --abort-on-container-exit
+#
+# What it does:
+#   1. Starts a PostgreSQL 16 container with the required extensions (via init.sql).
+#   2. Starts the NestJS API in development (watch) mode.
+#   3. Runs db:migrate (drizzle-kit push) then db:seed (ts-node) in the `seeder`
+#      one-shot service, then exits.  The API and DB keep running.
+#   4. Exposes Adminer on :8080 for a quick DB GUI.
+# ────────────────────────────────────────────────────────────────────────────────
+
+services:
+  # ─── PostgreSQL ──────────────────────────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    container_name: mayalu_local_postgres
+    environment:
+      POSTGRES_DB: mayalu_wears
+      POSTGRES_USER: mayalu
+      POSTGRES_PASSWORD: secret
+    ports:
+      - '5432:5432'
+    volumes:
+      - postgres_local_data:/var/lib/postgresql/data
+      - ./docker/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U mayalu -d mayalu_wears']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - mayalu_local_net
+
+  # ─── NestJS API (dev / watch mode) ───────────────────────────────────────────
+  api:
+    build:
+      context: .
+      target: development
+    container_name: mayalu_local_api
+    env_file: .env
+    environment:
+      # Override the DB host so the app reaches the docker-internal postgres
+      DATABASE_URL: postgresql://mayalu:secret@postgres:5432/mayalu_wears
+      NODE_ENV: development
+    ports:
+      - '8000:3000'   # App → http://localhost:8000
+      - '9229:9229'   # Node debugger
+    volumes:
+      - .:/app
+      - /app/node_modules
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - mayalu_local_net
+    restart: unless-stopped
+
+  # ─── DB Seeder (one-shot: migrate + seed, then exit) ─────────────────────────
+  seeder:
+    build:
+      context: .
+      target: development
+    container_name: mayalu_local_seeder
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://mayalu:secret@postgres:5432/mayalu_wears
+      NODE_ENV: development
+    # Push schema with drizzle-kit, then run the TypeScript seed file.
+    # `ts-node -r tsconfig-paths/register` mirrors what the `db:seed` npm script does.
+    command: >
+      sh -c "
+        echo '──────────────────────────────────────────────' &&
+        echo '  [seeder] Waiting for schema push...' &&
+        npx drizzle-kit push &&
+        echo '  [seeder] Schema ready. Running seed...' &&
+        npx ts-node -r tsconfig-paths/register src/database/seed/index.ts &&
+        echo '  [seeder] ✓ Fake data seeded successfully!' &&
+        echo '──────────────────────────────────────────────'
+      "
+    volumes:
+      - .:/app
+      - /app/node_modules
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - mayalu_local_net
+    restart: 'no'   # Run once and exit — do NOT restart on failure
+
+  # ─── Adminer (lightweight DB GUI) ────────────────────────────────────────────
+  adminer:
+    image: adminer:latest
+    container_name: mayalu_local_adminer
+    ports:
+      - '8080:8080'
+    depends_on:
+      - postgres
+    networks:
+      - mayalu_local_net
+
+volumes:
+  postgres_local_data:
+
+networks:
+  mayalu_local_net:
+    driver: bridge

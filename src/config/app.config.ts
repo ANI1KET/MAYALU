@@ -30,6 +30,12 @@ const configSchema = z.object({
   OTP_MAX_ATTEMPTS: z.coerce.number().int().min(1).max(10).default(3),
   OTP_RESEND_COOLDOWN_SECONDS: z.coerce.number().int().min(10).max(300).default(60),
 
+  // ── Dev / Test / App Review bypass ─────────────────────────────────
+  /** Phone number (e.g. 9800000000 or +9779800000000) that always accepts DEV_TEST_OTP for testing & App Store / Google Play reviews */
+  DEV_TEST_PHONE: z.string().optional(),
+  /** Static 6-digit OTP (e.g. 123456) accepted for DEV_TEST_PHONE */
+  DEV_TEST_OTP: z.string().length(6).optional(),
+
   // ── SMS ─────────────────────────────────────────────────────────────
   SMS_PROVIDER: z.enum(['sparrow', 'mock']).default('mock'),
   SPARROW_SMS_TOKEN: z.string().optional(),

@@ -1,12 +1,16 @@
 import { ApiPropertyOptional, ApiProperty } from '@nestjs/swagger';
-import { IsString, IsOptional, IsEnum, IsBoolean, Length } from 'class-validator';
+import { IsString, IsOptional, IsEnum, IsBoolean, Length, IsEmail } from 'class-validator';
+import { Transform } from 'class-transformer';
 
 export class UpdateProfileDto {
   @ApiPropertyOptional({ example: 'Sita Rai', description: '2–100 characters' })
   @IsOptional() @IsString() @Length(2, 100) fullName?: string;
 
   @ApiPropertyOptional({ example: 'sita@example.com' })
-  @IsOptional() @IsString() email?: string;
+  @IsOptional()
+  @Transform(({ value }) => (typeof value === 'string' && value.trim() === '' ? null : value))
+  @IsEmail()
+  email?: string | null;
 
   @ApiPropertyOptional({ example: 'https://res.cloudinary.com/...', description: 'Cloudinary URL' })
   @IsOptional() @IsString() avatarUrl?: string;

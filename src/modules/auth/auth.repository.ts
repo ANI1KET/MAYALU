@@ -1,4 +1,4 @@
-import { Injectable, Inject } from '@nestjs/common';
+import { Injectable, Inject, ConflictException } from '@nestjs/common';
 import { eq, and, gt, isNull, desc, sql } from 'drizzle-orm';
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
 import * as schema from '../../database/schema/index';
@@ -76,8 +76,18 @@ export class AuthRepository {
     isPhoneVerified: boolean;
     status: 'active';
   }) {
-    const [created] = await this.db.insert(schema.users).values(values).returning();
-    return created;
+    try {
+      const [created] = await this.db.insert(schema.users).values(values).returning();
+      return created;
+    } catch (error: any) {
+      if (error?.code === '23505') {
+        throw new ConflictException({
+          code: 'PHONE_TAKEN',
+          message: 'An account with this phone number already exists.',
+        });
+      }
+      throw error;
+    }
   }
 
   markUserLoggedIn(userId: string) {
@@ -104,7 +114,23 @@ export class AuthRepository {
     isPhoneVerified: boolean;
     status: 'active';
   }) {
-    const [user] = await this.db.insert(schema.users).values(values).returning();
-    return user;
+    try {
+      const [user] = await this.db.insert(schema.users).values(values).returning();
+      return user;
+    } catch (error: any) {
+      if (error?.code === '23505') {
+        if (error.constraint?.includes('email') || error.detail?.includes('email')) {
+          throw new ConflictException({
+            code: 'EMAIL_TAKEN',
+            message: 'An account with this email address already exists.',
+          });
+        }
+        throw new ConflictException({
+          code: 'PHONE_TAKEN',
+          message: 'An account with this phone number already exists.',
+        });
+      }
+      throw error;
+    }
   }
 }

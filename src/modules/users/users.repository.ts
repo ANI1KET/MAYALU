@@ -1,4 +1,4 @@
-import { Injectable, Inject } from '@nestjs/common';
+import { Injectable, Inject, ConflictException } from '@nestjs/common';
 import { eq } from 'drizzle-orm';
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
 import * as schema from '../../database/schema/index';
@@ -18,11 +18,30 @@ export class UsersRepository {
   }
 
   async updateProfile(userId: string, dto: UpdateProfileDto) {
-    const [updated] = await this.db.update(schema.users)
-      .set({ ...dto, updatedAt: new Date() })
-      .where(eq(schema.users.id, userId))
-      .returning();
-    return updated;
+    const updateData: Record<string, any> = {
+      ...dto,
+      updatedAt: new Date(),
+    };
+    if (updateData.email === '') {
+      updateData.email = null;
+    }
+    try {
+      const [updated] = await this.db.update(schema.users)
+        .set(updateData)
+        .where(eq(schema.users.id, userId))
+        .returning();
+      return updated;
+    } catch (error: any) {
+      if (error?.code === '23505') {
+        if (error.constraint?.includes('email') || error.detail?.includes('email')) {
+          throw new ConflictException({
+            code: 'EMAIL_TAKEN',
+            message: 'This email address is already in use by another account.',
+          });
+        }
+      }
+      throw error;
+    }
   }
 
   findAddressesByUserId(userId: string) {

@@ -1,5 +1,5 @@
 import { Injectable, BadRequestException, UnauthorizedException,
-  ConflictException, ForbiddenException, Logger } from '@nestjs/common';
+  ConflictException, ForbiddenException, BadGatewayException, Logger } from '@nestjs/common';
 import * as schema from '../../database/schema/index';
 import { JwtService } from '../../common/services/jwt.service';
 import { TokenService, type IssuePairMeta } from '../../common/services/token.service';
@@ -28,6 +28,30 @@ export class AuthService {
     const cooldownSeconds = config.OTP_RESEND_COOLDOWN_SECONDS;
     const cooldownBoundary = new Date(Date.now() - cooldownSeconds * 1000);
 
+    // ── Dev / Test / App Review bypass ────────────────────────────
+    const isTestPhone =
+      !!config.DEV_TEST_PHONE &&
+      !!config.DEV_TEST_OTP &&
+      phone === config.DEV_TEST_PHONE;
+
+    if (isTestPhone) {
+      const otp = config.DEV_TEST_OTP!;
+      const codeHash = await hashOtp(otp);
+      const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24-hour validity for testing/reviewers
+
+      await this.authRepository.insertOtpToken({
+        phone,
+        codeHash,
+        purpose,
+        attempts: 0,
+        expiresAt,
+        ipAddress: ipAddress ?? null,
+      });
+
+      this.logger.log(`[APP REVIEW / TEST BYPASS] OTP set for test phone ${phone}: ${otp}`);
+      return { message: 'OTP sent successfully. Valid for testing.' };
+    }
+
     // Check for recent OTP (cooldown)
     const recentOtp = await this.authRepository.findRecentOtp(phone, purpose, cooldownBoundary);
 
@@ -55,7 +79,15 @@ export class AuthService {
       ipAddress: ipAddress ?? null,
     });
 
-    await this.smsService.sendOtp(phone, otp);
+    try {
+      await this.smsService.sendOtp(phone, otp);
+    } catch (error) {
+      this.logger.error(`Failed to send SMS OTP to ${phone}: ${(error as Error)?.message}`, (error as Error)?.stack);
+      throw new BadGatewayException({
+        code: 'SMS_DELIVERY_FAILED',
+        message: 'Failed to send OTP via SMS. Please try again later.',
+      });
+    }
 
     this.logger.log(`OTP sent to ${phone.slice(0, 4)}**** for purpose: ${purpose}`);
     return { message: 'OTP sent successfully. Valid for 5 minutes.' };
@@ -72,29 +104,37 @@ export class AuthService {
   > {
     const config = getConfig();
 
+    const isTestBypass =
+      !!config.DEV_TEST_PHONE &&
+      !!config.DEV_TEST_OTP &&
+      phone === config.DEV_TEST_PHONE &&
+      otp === config.DEV_TEST_OTP;
+
     const record = await this.authRepository.findActiveOtp(phone, purpose);
 
-    if (!record) {
+    if (!record && !isTestBypass) {
       throw new UnauthorizedException({
         code: 'INVALID_OTP',
         message: 'Invalid or expired OTP. Please request a new one.',
       });
     }
 
-    if (record.attempts >= config.OTP_MAX_ATTEMPTS) {
+    if (record && record.attempts >= config.OTP_MAX_ATTEMPTS && !isTestBypass) {
       throw new UnauthorizedException({
         code: 'OTP_MAX_ATTEMPTS',
         message: `Maximum attempts exceeded. Please request a new OTP.`,
       });
     }
 
-    const isValid = await verifyOtp(record.codeHash, otp);
+    const isValid = isTestBypass || (record && (await verifyOtp(record.codeHash, otp)));
 
     if (!isValid) {
-      // Atomic increment — prevents race condition on concurrent requests
-      await this.authRepository.incrementOtpAttempts(record.id);
+      if (record) {
+        // Atomic increment — prevents race condition on concurrent requests
+        await this.authRepository.incrementOtpAttempts(record.id);
+      }
 
-      const remainingAttempts = config.OTP_MAX_ATTEMPTS - record.attempts - 1;
+      const remainingAttempts = record ? config.OTP_MAX_ATTEMPTS - record.attempts - 1 : 0;
       throw new UnauthorizedException({
         code: 'INVALID_OTP',
         message: remainingAttempts > 0
@@ -103,8 +143,10 @@ export class AuthService {
       });
     }
 
-    // Mark OTP as used
-    await this.authRepository.markOtpUsed(record.id);
+    // Mark OTP as used if an active record exists
+    if (record) {
+      await this.authRepository.markOtpUsed(record.id);
+    }
 
     if (purpose === 'register') {
       // Registration is completed via POST /auth/register (name/email required).
@@ -155,9 +197,11 @@ export class AuthService {
   async register(
     phone: string,
     fullName: string,
-    email: string | undefined,
+    email: string | undefined | null,
     meta: IssuePairMeta,
   ): Promise<{ accessToken: string; rawRefreshToken: string; user: typeof schema.users.$inferSelect }> {
+    const config = getConfig();
+
     const existing = await this.authRepository.findUserByPhone(phone);
 
     if (existing) {
@@ -167,20 +211,29 @@ export class AuthService {
       });
     }
 
-    // Check OTP was verified
-    const usedOtp = await this.authRepository.findLatestOtpByPurpose(phone, 'register');
+    const isTestPhone =
+      !!config.DEV_TEST_PHONE &&
+      !!config.DEV_TEST_OTP &&
+      phone === config.DEV_TEST_PHONE;
 
-    if (!usedOtp?.usedAt) {
-      throw new BadRequestException({
-        code: 'PHONE_NOT_VERIFIED',
-        message: 'Phone number must be verified before registration.',
-      });
+    if (!isTestPhone) {
+      // Check OTP was verified
+      const usedOtp = await this.authRepository.findLatestOtpByPurpose(phone, 'register');
+
+      if (!usedOtp?.usedAt) {
+        throw new BadRequestException({
+          code: 'PHONE_NOT_VERIFIED',
+          message: 'Phone number must be verified before registration.',
+        });
+      }
     }
+
+    const sanitizedEmail = (typeof email === 'string' && email.trim() !== '') ? email.trim() : null;
 
     const user = await this.authRepository.createRegisteredUser({
       phone,
       fullName,
-      email: email ?? null,
+      email: sanitizedEmail,
       isPhoneVerified: true,
       status: 'active',
     });

@@ -1,4 +1,4 @@
-import { IsString, IsEnum, Matches, IsOptional, Length } from 'class-validator';
+import { IsString, IsEnum, Matches, IsOptional, Length, IsEmail } from 'class-validator';
 import { Transform } from 'class-transformer';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { NEPAL_PHONE_REGEX, normalizeNepalPhone } from '../../../common/utils/phone.util';
@@ -48,6 +48,7 @@ export class RegisterDto {
 
   @ApiPropertyOptional({ example: 'sita@example.com' })
   @IsOptional()
-  @IsString()
-  email?: string;
+  @Transform(({ value }) => (typeof value === 'string' && value.trim() === '' ? null : value))
+  @IsEmail({}, { message: 'Must be a valid email address' })
+  email?: string | null;
 }
