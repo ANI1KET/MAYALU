@@ -1,12 +1,14 @@
 import * as argon2 from 'argon2';
 import * as crypto from 'crypto';
+
+import { getConfig } from '../../config/app.config';
 import { ARGON2_CONFIG, OTP, JWT } from '../constants/index';
 
 export async function hashOtp(otp: string): Promise<string> {
   return argon2.hash(otp, {
     type: argon2.argon2id,
-    memoryCost: ARGON2_CONFIG.memoryCost,
     timeCost: ARGON2_CONFIG.timeCost,
+    memoryCost: ARGON2_CONFIG.memoryCost,
     parallelism: ARGON2_CONFIG.parallelism,
   });
 }
@@ -19,7 +21,14 @@ export function sha256(input: string): string {
   return crypto.createHash('sha256').update(input).digest('hex');
 }
 
-export function generateOtp(): string {
+export function generateOtp(phone?: string): string {
+  const config = getConfig();
+
+  // Dev / Test / App Review bypass — returns a static OTP for the configured test phone
+  if (phone && config.DEV_TEST_PHONE && config.DEV_TEST_OTP && phone === config.DEV_TEST_PHONE) {
+    return config.DEV_TEST_OTP;
+  }
+
   const bytes = crypto.randomBytes(OTP.RANDOM_BYTES);
   const num =
     ((bytes[0] ?? 0) * 65_536 + (bytes[1] ?? 0) * 256 + (bytes[2] ?? 0)) % OTP.MODULUS;

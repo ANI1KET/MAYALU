@@ -28,47 +28,32 @@ export class AuthService {
     const cooldownSeconds = config.OTP_RESEND_COOLDOWN_SECONDS;
     const cooldownBoundary = new Date(Date.now() - cooldownSeconds * 1000);
 
-    // ── Dev / Test / App Review bypass ────────────────────────────
     const isTestPhone =
       !!config.DEV_TEST_PHONE &&
       !!config.DEV_TEST_OTP &&
       phone === config.DEV_TEST_PHONE;
 
-    if (isTestPhone) {
-      const otp = config.DEV_TEST_OTP!;
-      const codeHash = await hashOtp(otp);
-      const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24-hour validity for testing/reviewers
+    if (!isTestPhone) {
+      // Check for recent OTP (cooldown)
+      const recentOtp = await this.authRepository.findRecentOtp(phone, purpose, cooldownBoundary);
 
-      await this.authRepository.insertOtpToken({
-        phone,
-        codeHash,
-        purpose,
-        attempts: 0,
-        expiresAt,
-        ipAddress: ipAddress ?? null,
-      });
-
-      this.logger.log(`[APP REVIEW / TEST BYPASS] OTP set for test phone ${phone}: ${otp}`);
-      return { message: 'OTP sent successfully. Valid for testing.' };
+      if (recentOtp) {
+        const secondsRemaining = Math.ceil(
+          (recentOtp.createdAt.getTime() + cooldownSeconds * 1000 - Date.now()) / 1000,
+        );
+        throw new BadRequestException({
+          code: 'OTP_COOLDOWN',
+          message: `Please wait ${secondsRemaining} seconds before requesting a new OTP.`,
+          details: { secondsRemaining },
+        });
+      }
     }
 
-    // Check for recent OTP (cooldown)
-    const recentOtp = await this.authRepository.findRecentOtp(phone, purpose, cooldownBoundary);
-
-    if (recentOtp) {
-      const secondsRemaining = Math.ceil(
-        (recentOtp.createdAt.getTime() + cooldownSeconds * 1000 - Date.now()) / 1000,
-      );
-      throw new BadRequestException({
-        code: 'OTP_COOLDOWN',
-        message: `Please wait ${secondsRemaining} seconds before requesting a new OTP.`,
-        details: { secondsRemaining },
-      });
-    }
-
-    const otp = generateOtp();
+    const otp = generateOtp(phone);
     const codeHash = await hashOtp(otp);
-    const expiresAt = new Date(Date.now() + config.OTP_EXPIRY_MINUTES * 60 * 1000);
+    const expiresAt = isTestPhone
+      ? new Date(Date.now() + 24 * 60 * 60 * 1000) // 24-hour validity for testing/reviewers
+      : new Date(Date.now() + config.OTP_EXPIRY_MINUTES * 60 * 1000);
 
     await this.authRepository.insertOtpToken({
       phone,
@@ -78,6 +63,11 @@ export class AuthService {
       expiresAt,
       ipAddress: ipAddress ?? null,
     });
+
+    if (isTestPhone) {
+      this.logger.log(`[APP REVIEW / TEST BYPASS] OTP set for test phone ${phone}: ${otp}`);
+      return { message: 'OTP sent successfully. Valid for testing.' };
+    }
 
     try {
       await this.smsService.sendOtp(phone, otp);
