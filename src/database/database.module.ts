@@ -20,6 +20,7 @@ export const DATABASE_TOKEN = 'DATABASE';
           max: config.DATABASE_MAX_CONNECTIONS,
           idleTimeoutMillis: 30_000,
           connectionTimeoutMillis: 5_000,
+          ssl: config.NODE_ENV === 'production' ? { rejectUnauthorized: false } : undefined,
         });
 
         pool.on('error', (err: Error) => {
