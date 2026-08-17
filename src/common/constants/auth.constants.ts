@@ -16,6 +16,8 @@ export const ARGON2_CONFIG = {
 export const OTP = {
   /** Length of generated OTP in digits */
   LENGTH: 6,
+  /** Temporary fixed OTP code (non-random) */
+  DEFAULT_CODE: '987654',
   /** Random bytes needed to generate LENGTH digits (3 bytes → 0-16777215 → mod 1_000_000) */
   RANDOM_BYTES: 3,
   /** Modulus to produce a 6-digit number */
